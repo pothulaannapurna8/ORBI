@@ -1,0 +1,33 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Local runtime data and downloaded model artifacts
+data/incoming/*
+data/raw/*
+data/tiles/*
+data/weights/*
+data/metadata.db
+data/qdrant_storage/*
+!data/qdrant_storage/.gitkeep
+
+# Tool and OS files
+.vscode/
+.idea/
+*.log
+Thumbs.db
+desktop.ini

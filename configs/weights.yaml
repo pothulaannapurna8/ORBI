@@ -1,0 +1,18 @@
+weights:
+  clip_rsicd:
+    hf_repo: "flax-community/clip-rsicd-v2"
+    local_dir: "./data/weights/clip-rsicd"
+    status: "staged_or_fallback"
+  clay_model:
+    hf_repo: "made-with-clay/Clay"
+    checkpoint_file: "clay_v1_5.pt"
+    local_path: "./data/weights/clay_v1_5.pt"
+    status: "staged_or_fallback"
+  open_cd:
+    checkpoint_file: "open_cd_snunet.pt"
+    local_path: "./data/weights/open_cd_snunet.pt"
+    status: "staged_or_fallback"
+  s2cloudless:
+    checkpoint_file: "s2cloudless_weights.npy"
+    local_path: "./data/weights/s2cloudless_weights.npy"
+    status: "staged_or_fallback"

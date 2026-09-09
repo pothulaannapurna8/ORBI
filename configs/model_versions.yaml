@@ -1,0 +1,44 @@
+models:
+  clip_rsicd:
+    role: "Natural language text and satellite image semantic retrieval"
+    name: "CLIP-RSICD v2"
+    source: "flax-community/clip-rsicd-v2"
+    license: "Apache-2.0"
+    embedding_dimension: 512
+    encoder_type: "dual_tower_clip"
+    input_size: [224, 224]
+    bands: ["R", "G", "B"]
+    verified: true
+
+  clay_foundation:
+    role: "Multispectral Earth Observation spectral representation"
+    name: "Clay v1.5"
+    source: "github.com/Clay-foundation/model"
+    license: "Apache-2.0"
+    embedding_dimension: 768
+    encoder_type: "vision_transformer_mae"
+    input_size: [512, 512]
+    bands: ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B10", "B11", "B12"]
+    verified: true
+
+  open_cd:
+    role: "Multi-temporal building and construction change detection"
+    name: "Open-CD SNUNet / TinyCD"
+    source: "github.com/likyoo/open-cd"
+    license: "Apache-2.0"
+    target_tasks: ["construction", "urban_expansion"]
+    verified: true
+
+  s2cloudless:
+    role: "Sentinel-2 pixel-level cloud probability masking"
+    name: "s2cloudless"
+    source: "github.com/sentinel-hub/sentinel2-cloud-detector"
+    license: "CC-BY-SA-4.0"
+    verified: true
+
+  arosics:
+    role: "Sub-pixel image co-registration"
+    name: "AROSICS"
+    source: "github.com/GFZ/arosics"
+    license: "Apache-2.0"
+    verified: true
