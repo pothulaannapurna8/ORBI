@@ -94,6 +94,9 @@ A full, production-oriented implementation of **Problem Statement PS26227**: Cro
   - Temporal Consistency (20%)
 - **Enhanced Review Panel**: Sensor metadata, visual progress bars, and color-coded indicators
 - **Multiple View Modes**: Split slider and side-by-side comparison options
+- **Similar-Site Discovery**: Find comparable locations from the selected tile's stored Qdrant embedding
+- **Analyst Feedback States**: Loading skeletons, suppressed-result explanations, review validation, and confirmation feedback
+- **Distinct Discovery Markers**: Similar sites use cyan square markers so they are visually separate from confidence markers
 
 #### 📊 **Comprehensive Evaluation Suite**
 - **Retrieval Benchmark**: Recall@K, Precision@K, Mean Reciprocal Rank (MRR), latency percentiles
@@ -108,6 +111,8 @@ A full, production-oriented implementation of **Problem Statement PS26227**: Cro
 - **Edge Case Handling**: Empty queries, invalid parameters, insufficient data scenarios
 - **Integration Testing**: Image search, multimodal search, temporal endpoints
 - **Detailed Reporting**: Pass/fail statistics with error categorization and success rates
+
+**Latest local verification:** 14 tests passed. Two legacy review tests submit nonexistent change IDs and correctly receive `404`; they require fixture updates before the suite can report 16/16.
 
 ---
 
@@ -195,6 +200,7 @@ docker compose ps
 | `GET` | `/results/{id}` | Full detection record and review history | Enhanced with CCS breakdown |
 | `GET` | `/results/{id}/temporal` | Longitudinal timeline & earliest change date onset | Improved temporal consistency metrics |
 | `GET` | `/results/{id}/evidence` | Export structured JSON audit package | Includes CCS component breakdown |
+| `GET` | `/results/{id}/similar` | Discover sites with comparable stored semantic embeddings | Excludes source tile; returns reusable result-card shape |
 | `POST` | `/review/{id}` | Human analyst confirm/reject decision and audit notes | Enhanced audit trail |
 | `POST` | `/ingest` | Incremental scene drop / upload (triggers only affected grid cells) | Watch folder integration |
 | `GET` | `/tiles/{id}` | Full Sentinel-2 tile metadata record | Unchanged |
@@ -295,12 +301,15 @@ To demonstrate incremental ingestion without whole-archive recomputation:
 - **Visual Progress Bars**: Color-coded indicators for confidence levels
 - **Audit Trail**: Complete review history with analyst notes
 - **Evidence Export**: JSON package export with full CCS breakdown
+- **Required Review Notes**: Confirm/reject actions require an analyst note and show recorded feedback
+- **Backend Evidence Bundle**: Export retrieves the persisted `/results/{id}/evidence` package rather than rebuilding it in the browser
 
 ### Map Visualization
 - **Color-Coded Markers**: Green (≥0.70), Orange (0.40-0.70), Red (<0.40)
 - **Interactive Legend**: Clear confidence score interpretation
 - **Result Filtering**: Toggle for suppressed false alarms
 - **AOI Presets**: Quick selection of urban and river basin areas
+- **Similar-Site Layer**: Cyan square markers for stored-embedding discovery results
 
 ---
 
@@ -310,8 +319,10 @@ To demonstrate incremental ingestion without whole-archive recomputation:
    ```bash
    python scripts/stage_offline.py
    ```
-2. Disconnect Wi-Fi / Ethernet.
-3. Run `python -m pytest -q`. All embeddings, vector queries, registration, and change detections execute locally without external network dependencies.
+2. Disconnect Wi-Fi / Ethernet in the deployment environment.
+3. Run `python -m pytest -q` and execute one text and one image search against local Qdrant/SQLite stores.
+
+The local verification run returned text and image results without network-backed services. The repository does not include trained CLIP-RSICD, Clay, or Open-CD checkpoint artifacts, so offline fallback encoders and the SNUNet architecture fallback remain explicit until those weights are staged. The staging script reports missing artifacts instead of creating empty placeholder files.
 
 ---
 
@@ -321,7 +332,7 @@ To demonstrate incremental ingestion without whole-archive recomputation:
 ✅ **Incremental Watch Folder Service** - Automated scene monitoring with smart location-key processing  
 ✅ **Enhanced React Dashboard** - Interactive split-screen viewer, multimodal search, CCS breakdown display  
 ✅ **Comprehensive Evaluation Suite** - Advanced metrics, error handling, JSON report generation  
-✅ **Enhanced Test Infrastructure** - 16 test cases with boundary value and edge case testing  
+✅ **Enhanced Test Infrastructure** - 16 tests defined; latest local run: 14 passed, 2 stale review fixtures rejected with 404
 ✅ **Updated Dependencies** - watchdog, rasterio, scikit-learn for full functionality  
 
 ### Key Technical Achievements
@@ -329,7 +340,7 @@ To demonstrate incremental ingestion without whole-archive recomputation:
 - **User Experience**: Interactive UI with drag-to-resize slider and visual feedback
 - **Robustness**: Comprehensive error handling and graceful degradation
 - **Auditability**: Detailed metrics reporting and JSON evidence export
-- **Test Coverage**: Expanded test suite with 100% integration coverage
+- **Test Coverage**: Focused API, temporal, embedding, ingestion, and frontend build verification
 
 ### Production Readiness
 - **Modular Architecture**: Clean separation of concerns across all components
@@ -337,6 +348,8 @@ To demonstrate incremental ingestion without whole-archive recomputation:
 - **Documentation**: Comprehensive API documentation and usage examples
 - **Scalability**: Location-key optimization enables efficient scaling
 - **Maintainability**: Well-structured code with clear interfaces and type hints
+
+**Verification limits:** The repository does not ship trained CLIP-RSICD, Clay, or Open-CD checkpoint files. When those artifacts are absent, local fallback encoders and the SNUNet architecture fallback keep the pipeline runnable, but model-backed production accuracy is not claimed until the weights are staged.
 
 ---
 
@@ -395,4 +408,4 @@ OPEN_CD_CHECKPOINT=data/weights/open_cd_snunet.pt
 
 ---
 
-**Status**: ✅ **Phase 4 Complete** - Full end-to-end pipeline operational with advanced UI, comprehensive testing, and production-ready infrastructure.
+**Status**: ✅ **Phase 4 Implementation Complete** - End-to-end local pipeline, discovery API, provenance export, and analyst dashboard are implemented. Current verification includes 44 indexed tiles, successful local text/image searches, a passing frontend build, and 14/16 automated tests passing; two legacy review fixtures remain to be updated.

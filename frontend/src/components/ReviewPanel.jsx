@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { apiFetch } from '../api.js';
 
-export default function ReviewPanel({ result, onReviewSubmit }) {
+export default function ReviewPanel({ result, onReviewSubmit, onFindSimilar, similarLoading }) {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [lastDecision, setLastDecision] = useState(null);
+  const [reviewError, setReviewError] = useState('');
 
   if (!result) return null;
 
@@ -18,6 +19,12 @@ export default function ReviewPanel({ result, onReviewSubmit }) {
 
   const handleReview = async (decision) => {
     setSubmitting(true);
+    setReviewError('');
+    if (!note.trim()) {
+      setReviewError('Add a one-line analyst note before recording the decision.');
+      setSubmitting(false);
+      return;
+    }
     try {
       const res = await apiFetch(`/review/${result.tile_id}`, {
         method: 'POST',
@@ -31,9 +38,12 @@ export default function ReviewPanel({ result, onReviewSubmit }) {
         setLastDecision(decision);
         setNote('');
         if (onReviewSubmit) onReviewSubmit(result.tile_id, decision);
+      } else {
+        setReviewError(`Review could not be recorded (${res.status}).`);
       }
     } catch (err) {
       console.error(err);
+      setReviewError('Review service unavailable.');
     } finally {
       setSubmitting(false);
     }
@@ -176,7 +186,7 @@ export default function ReviewPanel({ result, onReviewSubmit }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
         <button
           onClick={() => handleReview('confirmed')}
-          disabled={submitting}
+          disabled={submitting || !note.trim()}
           style={{
             padding: '8px',
             borderRadius: '6px',
@@ -193,7 +203,7 @@ export default function ReviewPanel({ result, onReviewSubmit }) {
 
         <button
           onClick={() => handleReview('rejected')}
-          disabled={submitting}
+          disabled={submitting || !note.trim()}
           style={{
             padding: '8px',
             borderRadius: '6px',
@@ -208,6 +218,20 @@ export default function ReviewPanel({ result, onReviewSubmit }) {
           ✗ Reject (False Alarm)
         </button>
       </div>
+
+      {reviewError && <div style={{ color: '#fbbf24', fontSize: '11px' }}>{reviewError}</div>}
+      {lastDecision && <div className="review-toast">Review recorded: {lastDecision}</div>}
+
+      {onFindSimilar && (
+        <button
+          type="button"
+          onClick={() => onFindSimilar(result)}
+          disabled={similarLoading}
+          style={{ padding: '8px', borderRadius: '6px', border: '1px solid #155e75', background: '#12232b', color: '#67e8f9', fontWeight: 600, fontSize: '12px', cursor: similarLoading ? 'wait' : 'pointer' }}
+        >
+          {similarLoading ? 'Finding similar sites...' : 'Find similar sites'}
+        </button>
+      )}
     </div>
   );
 }

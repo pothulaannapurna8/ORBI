@@ -157,27 +157,10 @@ try:
     # Simulate a search request
     from backend.api.search import run_temporal_analysis_for_candidates
     
-    # Create mock candidates (as if Qdrant returned them)
-    mock_candidates = [
-        {
-            "id": "test_tile_1",
-            "score": 0.85,
-            "payload": {
-                "tile_id": "test_tile_1",
-                "location_key": "loc_cell_0_100_0_100",
-                "sensor": "Sentinel-2 L2A",
-                "acquisition_datetime": "2025-06-01T00:00:00",
-                "cloud_cover": 0.1,
-                "quality_score": 0.95,
-                "rgb_filepath": "fake_path.png",
-                "latitude": 0.1,
-                "longitude": 0.1
-            }
-        }
-    ]
-    
-    print("  Testing with mock candidates...")
-    results = run_temporal_analysis_for_candidates(mock_candidates)
+    # Use the indexed semantic collection so this test exercises real tile pairs.
+    real_candidates = qdrant_store.search_semantic([0.1] * 512, top_k=5)
+    print(f"  Testing with {len(real_candidates)} indexed candidates...")
+    results = run_temporal_analysis_for_candidates(real_candidates)
     print(f"  Results returned: {len(results)}")
     
     if len(results) > 0:
@@ -186,7 +169,7 @@ try:
         print(f"  Confidence level: {result.get('confidence_level')}")
         print(f"  Reranked score: {result.get('reranked_score')}")
     else:
-        print("  ⚠️  Pipeline returned 0 results from valid candidates!")
+        print("  ⚠️  Pipeline returned 0 results from indexed candidates!")
     
     print("✓ Search pipeline completed")
 except Exception as e:
@@ -214,8 +197,11 @@ try:
     print(f"  Raw data: {len(list(raw_dir.glob('*')))}")
     print(f"  Generated tiles: {len(list(tiles_dir.glob('*.png')))}")
     
-    if len(list(incoming_dir.glob('*'))) == 0:
-        print("  ⚠️  No data in incoming/ - consider running data ingestion")
+    staged_scene_count = len(list(incoming_dir.glob('*'))) + len(list(raw_dir.glob('*')))
+    if staged_scene_count == 0:
+        print("  ⚠️  No staged scenes in incoming/ or raw/")
+    else:
+        print(f"  Staged scenes available for ingestion: {staged_scene_count}")
     
     print("✓ Ingestion pipeline accessible")
 except Exception as e:

@@ -27,6 +27,19 @@ from backend.config import (
 logger = logging.getLogger(__name__)
 
 
+class ConfidenceScore(float):
+    """Numeric CCS value that also supports legacy tuple unpacking."""
+
+    def __new__(cls, value: float, category: str):
+        instance = super().__new__(cls, value)
+        instance.category = category
+        return instance
+
+    def __iter__(self):
+        yield float(self)
+        yield self.category
+
+
 def compute_change_confidence_score(
     change_evidence: float,
     cloud_score: float,
@@ -97,7 +110,7 @@ def compute_change_confidence_score(
         f"reg={registration_quality:.2f}, temp_cons={temporal_consistency:.2f})"
     )
     
-    return ccs_score, category
+    return ConfidenceScore(ccs_score, category)
 
 
 def categorize_confidence(ccs_score: float) -> Literal["confirmed_change", "review_flagged", "low_confidence"]:
@@ -111,8 +124,8 @@ def categorize_confidence(ccs_score: float) -> Literal["confirmed_change", "revi
         Confidence category
     """
     if ccs_score >= 0.70:
-        return "confirmed_change"
+        return "high_confidence"
     elif ccs_score >= 0.40:
-        return "review_flagged"
+        return "needs_review"
     else:
-        return "low_confidence"
+        return "suppressed"

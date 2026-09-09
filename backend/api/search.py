@@ -93,12 +93,15 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
         seen_locations.add(loc_key)
 
         similarity = float(cand.get("score", 0.0))
+        location_changes = db.get_changes_by_location(loc_key, limit=1)
+        latest_change = location_changes[0] if location_changes else {}
         # Fetch all available dates for this location
         tiles = db.get_tiles_by_location(loc_key)
         if len(tiles) < 2:
             # Single date candidate: surface with baseline confidence
             results.append({
                 "tile_id": payload.get("tile_id"),
+                "change_id": latest_change.get("change_id"),
                 "location_key": loc_key,
                 "similarity": round(similarity, 4),
                 "change_confidence": 0.0,
@@ -129,9 +132,7 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
             im_after = np.array(Image.open(latest_tile["rgb_filepath"]).convert("RGB"))
 
             # 1. AROSICS Sub-pixel Registration
-            im_reg, registration = arosics_aligner.register(im_before, im_after)
-            shift_px = float(registration.get("shift_magnitude", 0.0))
-            reg_quality = float(registration.get("coherence", 0.0))
+            im_reg, shift_px, reg_quality = arosics_aligner.register(im_before, im_after)
 
             # 2. Open-CD Binary Change Detection
             change_mask, raw_evidence = open_cd_detector.detect_change(im_before, im_reg)
@@ -185,6 +186,7 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
 
             results.append({
                 "tile_id": latest_tile.get("tile_id"),
+                "change_id": latest_change.get("change_id"),
                 "location_key": loc_key,
                 "similarity": round(similarity, 4),
                 "change_confidence": round(ccs, 4),
@@ -203,6 +205,12 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
                     "model_version": "SNUNet-v1.2",
                     "registration_shift_px": round(shift_px, 2),
                     "cloud_mask_quality": round(1.0 - cloud_contam, 2)
+                },
+                "ccs_breakdown": {
+                    "change_evidence": round(float(raw_evidence), 4),
+                    "cloud_score": round(cloud_contam, 4),
+                    "registration_quality": round(reg_quality, 4),
+                    "temporal_consistency": round(float(temp_consistency), 4)
                 },
                 "reranked_score": round(final_rank_score, 4)
             })
@@ -226,6 +234,9 @@ def search_text(req: TextSearchRequest):
     Parses intent, generates CLIP text embedding, searches Qdrant,
     resolves candidates through temporal pipeline, and reranks by CCS.
     """
+    if req.top_k is not None and not 1 <= req.top_k <= 100:
+        raise HTTPException(status_code=400, detail="top_k must be between 1 and 100")
+
     parsed = parse_query_rules(req.query)
     # 1. Encode text via CLIP-RSICD
     query_vec = clip_encoder.encode_text(req.query)

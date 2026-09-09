@@ -61,10 +61,10 @@ export default function MapView({
       bounds.extend([lon, lat]);
 
       // Color coding by Change Confidence Score
-      let color = '#22c55e'; // High (>= 0.70)
-      if (item.change_confidence < 0.40) {
+      let color = item.isSimilar ? '#22d3ee' : '#22c55e';
+      if (!item.isSimilar && item.change_confidence < 0.40) {
         color = '#ef4444'; // Suppressed (< 0.40)
-      } else if (item.change_confidence < 0.70) {
+      } else if (!item.isSimilar && item.change_confidence < 0.70) {
         color = '#f59e0b'; // Review (0.40 - 0.70)
       }
 
@@ -74,7 +74,7 @@ export default function MapView({
       el.style.width = isSelected ? '26px' : '18px';
       el.style.height = isSelected ? '26px' : '18px';
       el.style.backgroundColor = color;
-      el.style.borderRadius = '50%';
+      el.style.borderRadius = item.isSimilar ? '3px' : '50%';
       el.style.border = isSelected ? '3px solid white' : '2px solid #0f172a';
       el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.6)';
       el.style.cursor = 'pointer';
@@ -129,6 +129,10 @@ export default function MapView({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }} />
           <span>Suppressed / False Alarm (&lt; 0.40)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: '#22d3ee' }} />
+          <span>Similar site</span>
         </div>
       </div>
     </div>

@@ -1,30 +1,15 @@
 import React from 'react';
+import { apiFetch } from '../api.js';
 
 export default function EvidenceExport({ result }) {
   if (!result) return null;
 
-  const handleExport = () => {
-    const evidencePackage = {
-      export_version: "PS26227_AUDIT_v1",
-      exported_at: new Date().toISOString(),
-      location_key: result.location_key,
-      coordinates: result.coordinates,
-      change_type: result.change_type,
-      change_confidence_score: result.change_confidence,
-      semantic_similarity: result.similarity,
-      earliest_change_date: result.earliest_change_date,
-      acquisition_dates: result.acquisition_dates,
-      sensor: result.sensor,
-      provenance: result.provenance,
-      evidence_paths: result.evidence_paths,
-      ccs_breakdown: result.ccs_breakdown || {
-        change_evidence: result.change_confidence * 0.4,
-        cloud_score: 0.1,
-        registration_quality: 0.9,
-        temporal_consistency: 0.8
-      }
-    };
-
+  const handleExport = async () => {
+    if (!result.change_id) return;
+    const response = await apiFetch(`/results/${result.change_id}/evidence`);
+    if (!response.ok) return;
+    const evidencePackage = await response.json();
+    /* The API response is the audit bundle; the browser only handles download. */
     const blob = new Blob([JSON.stringify(evidencePackage, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -33,6 +18,7 @@ export default function EvidenceExport({ result }) {
     a.click();
     URL.revokeObjectURL(url);
   };
+
 
   return (
     <button

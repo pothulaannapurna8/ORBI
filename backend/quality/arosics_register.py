@@ -191,14 +191,8 @@ class AROSICSAligner:
         
         Returns:
             image_aligned: Registered 'after' image, same shape as input
-            metadata: {
-                'shift_y': float,
-                'shift_x': float,
-                'shift_magnitude': float,
-                'coherence': float,
-                'success': bool,
-                'error_msg': str (if not successful)
-            }
+            shift_magnitude: Estimated pixel displacement
+            coherence: Phase-correlation quality score
         """
         metadata = {
             'shift_y': 0.0,
@@ -244,14 +238,14 @@ class AROSICSAligner:
                     f"tolerance {self.max_shift_px}px"
                 )
                 logger.warning(metadata['error_msg'])
-                return image_after, metadata
+                return image_after, float(shift_magnitude), float(coherence)
             
             # Check coherence threshold (peak should be prominent)
             if coherence < 0.1:
                 metadata['success'] = False
                 metadata['error_msg'] = f"Low coherence {coherence:.3f} (< 0.1)"
                 logger.warning(metadata['error_msg'])
-                return image_after, metadata
+                return image_after, float(shift_magnitude), float(coherence)
             
             # Apply shift to full image (all bands if multi-band)
             if image_after.ndim == 3:
@@ -272,13 +266,13 @@ class AROSICSAligner:
                 f"coherence={coherence:.3f}"
             )
             
-            return aligned, metadata
+            return aligned, float(shift_magnitude), float(coherence)
         
         except Exception as e:
             metadata['success'] = False
             metadata['error_msg'] = str(e)
             logger.error(f"Registration failed: {e}")
-            return image_after, metadata
+            return image_after, 0.0, 0.0
 
     def compute_registration_quality_score(
         self,

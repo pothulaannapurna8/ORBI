@@ -76,6 +76,9 @@ class DatabaseManager:
             evidence_paths TEXT NOT NULL,
             registration_shift_px REAL DEFAULT 0.0,
             cloud_mask_quality REAL DEFAULT 1.0,
+            registration_quality REAL DEFAULT 0.0,
+            ccs_breakdown TEXT,
+            processing_version TEXT,
             model_version TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (before_tile_id) REFERENCES tile(tile_id),
@@ -90,10 +93,30 @@ class DatabaseManager:
             change_id TEXT NOT NULL,
             decision TEXT NOT NULL,
             analyst_note TEXT,
+            analyst_id TEXT,
+            confidence_override REAL,
             reviewed_at TEXT NOT NULL,
             FOREIGN KEY (change_id) REFERENCES change_result(change_id)
         )
         """)
+
+        existing_review_columns = {
+            row[1] for row in cur.execute("PRAGMA table_info(review_log)").fetchall()
+        }
+        if "analyst_id" not in existing_review_columns:
+            cur.execute("ALTER TABLE review_log ADD COLUMN analyst_id TEXT")
+        if "confidence_override" not in existing_review_columns:
+            cur.execute("ALTER TABLE review_log ADD COLUMN confidence_override REAL")
+
+        existing_change_columns = {
+            row[1] for row in cur.execute("PRAGMA table_info(change_result)").fetchall()
+        }
+        if "registration_quality" not in existing_change_columns:
+            cur.execute("ALTER TABLE change_result ADD COLUMN registration_quality REAL DEFAULT 0.0")
+        if "ccs_breakdown" not in existing_change_columns:
+            cur.execute("ALTER TABLE change_result ADD COLUMN ccs_breakdown TEXT")
+        if "processing_version" not in existing_change_columns:
+            cur.execute("ALTER TABLE change_result ADD COLUMN processing_version TEXT")
 
         conn.commit()
         conn.close()
@@ -174,8 +197,9 @@ class DatabaseManager:
                 change_id, location_key, before_tile_id, after_tile_id,
                 earliest_change_date, change_type, change_score, confidence,
                 evidence_paths, registration_shift_px, cloud_mask_quality,
+                registration_quality, ccs_breakdown, processing_version,
                 model_version, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             change_id,
             res.get("location_key", ""),
@@ -188,6 +212,9 @@ class DatabaseManager:
             ev_paths,
             float(res.get("registration_shift_px", 0.0)),
             float(res.get("cloud_mask_quality", 1.0)),
+            float(res.get("registration_quality", 0.0)),
+            json.dumps(res.get("ccs_breakdown", {})),
+            res.get("processing_version", "v1.0.0"),
             res.get("model_version", "SNUNet-v1"),
             now_iso
         ))
@@ -210,17 +237,39 @@ class DatabaseManager:
                 d["evidence_paths"] = json.loads(d["evidence_paths"])
             except Exception:
                 d["evidence_paths"] = {}
+        if isinstance(d.get("ccs_breakdown"), str):
+            try:
+                d["ccs_breakdown"] = json.loads(d["ccs_breakdown"])
+            except Exception:
+                d["ccs_breakdown"] = {}
         return d
 
-    def insert_review(self, change_id: str, decision: str, note: Optional[str] = None) -> str:
+    def insert_review(
+        self,
+        change_id: str,
+        decision: str,
+        note: Optional[str] = None,
+        analyst_id: Optional[str] = None,
+        confidence_override: Optional[float] = None
+    ) -> str:
         review_id = str(uuid.uuid4())
         now_iso = datetime.utcnow().isoformat()
         conn = sqlite3.connect(str(SQLITE_DB_PATH))
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO review_log (review_id, change_id, decision, analyst_note, reviewed_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (review_id, change_id, decision, note or "", now_iso))
+            INSERT INTO review_log (
+                review_id, change_id, decision, analyst_note,
+                analyst_id, confidence_override, reviewed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            review_id,
+            change_id,
+            decision,
+            note or "",
+            analyst_id,
+            confidence_override,
+            now_iso
+        ))
         conn.commit()
         conn.close()
         return review_id
@@ -233,6 +282,53 @@ class DatabaseManager:
         rows = cur.fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    def get_changes_by_location(
+        self,
+        location_key: str,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(str(SQLITE_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT * FROM change_result
+            WHERE location_key = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (location_key, limit, offset)
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def count_changes_by_location(self, location_key: str) -> int:
+        conn = sqlite3.connect(str(SQLITE_DB_PATH))
+        count = conn.execute(
+            "SELECT COUNT(*) FROM change_result WHERE location_key = ?",
+            (location_key,)
+        ).fetchone()[0]
+        conn.close()
+        return int(count)
+
+    def get_recent_reviews(
+        self,
+        limit: int = 20,
+        decision_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(str(SQLITE_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        query = "SELECT * FROM review_log"
+        params: List[Any] = []
+        if decision_filter:
+            query += " WHERE decision = ?"
+            params.append(decision_filter)
+        query += " ORDER BY reviewed_at DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
 
 # Global singleton
 db = DatabaseManager()

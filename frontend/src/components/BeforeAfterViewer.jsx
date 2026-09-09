@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { apiUrl } from '../api.js';
 
 export default function BeforeAfterViewer({ result }) {
-  const [showMask, setShowMask] = useState(true);
+  const [showChangeMask, setShowChangeMask] = useState(true);
+  const [showWaterMask, setShowWaterMask] = useState(true);
   const [viewMode, setViewMode] = useState('split'); // 'split' | 'overlay' | 'sidebyside'
   const [sliderPos, setSliderPos] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
@@ -89,18 +90,24 @@ export default function BeforeAfterViewer({ result }) {
             Side-by-Side
           </button>
           <button
-            onClick={() => setShowMask(!showMask)}
+            onClick={() => setShowChangeMask(!showChangeMask)}
             style={{
               padding: '4px 8px',
               borderRadius: '4px',
               border: '1px solid #475569',
-              background: showMask ? '#0284c7' : '#1e293b',
+              background: showChangeMask ? '#0284c7' : '#1e293b',
               color: '#f8fafc',
               fontSize: '11px',
               cursor: 'pointer'
             }}
           >
-            {showMask ? 'Hide Mask' : 'Show Mask'}
+            {showChangeMask ? 'Hide Change Mask' : 'Show Change Mask'}
+          </button>
+          <button
+            onClick={() => setShowWaterMask(!showWaterMask)}
+            style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #475569', background: showWaterMask ? '#0284c7' : '#1e293b', color: '#f8fafc', fontSize: '11px', cursor: 'pointer' }}
+          >
+            {showWaterMask ? 'Hide Water Mask' : 'Show Water Mask'}
           </button>
         </div>
       </div>
@@ -166,7 +173,7 @@ export default function BeforeAfterViewer({ result }) {
               />
               
               {/* Change Mask Overlay on After Image */}
-              {showMask && result.change_type === 'construction' && (
+              {showChangeMask && result.change_type === 'construction' && (
                 <div style={{
                   position: 'absolute',
                   top: 0,
@@ -186,7 +193,7 @@ export default function BeforeAfterViewer({ result }) {
                 </div>
               )}
 
-              {showMask && result.change_type.includes('water') && (
+              {showWaterMask && result.change_type.includes('water') && (
                 <div style={{
                   position: 'absolute',
                   top: 0,

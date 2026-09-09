@@ -143,5 +143,21 @@ class QdrantStore:
             "payload": r.payload or {}
         } for r in results]
 
+    def get_semantic_tile(self, point_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a stored semantic vector and payload without re-encoding."""
+        points = self.client.retrieve(
+            collection_name=self.semantic_collection,
+            ids=[point_id],
+            with_vectors=True
+        )
+        if not points:
+            return None
+        point = points[0]
+        return {
+            "id": str(point.id),
+            "vector": list(point.vector),
+            "payload": point.payload or {}
+        }
+
 # Global singleton
 qdrant_store = QdrantStore()

@@ -32,6 +32,12 @@ try:
     HAS_WATCHDOG = True
 except ImportError:
     HAS_WATCHDOG = False
+    Observer = None
+
+    class FileSystemEventHandler:
+        """Fallback base class when optional watchdog support is unavailable."""
+
+        pass
 
 from backend.config import INCOMING_DIR, TILE_SIZE_PX
 from backend.ingestion.tiler import SceneTiler, compute_location_key
@@ -161,9 +167,7 @@ class IncrementalIngestionService:
                     
                     # Co-registration
                     try:
-                        reg_tgt, shift_metadata = arosics_aligner.register(ref_img, tgt_img)
-                        shift_px = shift_metadata.get("shift_magnitude", 0.0)
-                        reg_quality = shift_metadata.get("coherence", 0.9)
+                        reg_tgt, shift_px, reg_quality = arosics_aligner.register(ref_img, tgt_img)
                     except Exception as e:
                         logger.warning(f"[{loc_key}] Registration failed: {e}")
                         reg_tgt = tgt_img
@@ -195,7 +199,7 @@ class IncrementalIngestionService:
                         continue
                     
                     # Estimate earliest change date
-                    earliest_date, max_score, persistence = estimate_earliest_change_date(
+                    earliest_date, temporal_consistency, _ = estimate_earliest_change_date(
                         timeline,
                         threshold=0.40,
                         persistence_lookhead=2,
@@ -208,7 +212,7 @@ class IncrementalIngestionService:
                         change_evidence=float(change_score),
                         cloud_score=cloud_score,
                         registration_quality=reg_quality,
-                        temporal_consistency=persistence
+                        temporal_consistency=temporal_consistency
                     )
                     
                     # Save change mask PNG
@@ -237,7 +241,15 @@ class IncrementalIngestionService:
                         },
                         "registration_shift_px": shift_px,
                         "cloud_mask_quality": 1.0 - cloud_score,
-                        "model_version": "Open-CD-SNUNet-v1.2"
+                        "registration_quality": float(reg_quality),
+                        "ccs_breakdown": {
+                            "change_evidence": float(change_score),
+                            "cloud_score": cloud_score,
+                            "registration_quality": float(reg_quality),
+                            "temporal_consistency": float(temporal_consistency)
+                        },
+                        "model_version": "Open-CD-SNUNet-v1.2",
+                        "processing_version": "v1.0.0"
                     }
                     
                     # Insert or update in database

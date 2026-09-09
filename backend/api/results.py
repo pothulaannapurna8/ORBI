@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.database.db_manager import db
+from backend.database.qdrant_client import qdrant_store
 from backend.change_detection.earliest_change import (
     estimate_earliest_change_date,
     compute_temporal_consistency_score
@@ -165,7 +166,7 @@ async def get_result_temporal_timeline(
         
         # Estimate earliest change date with persistence check
         if len(timeline) >= 2:
-            earliest_date, max_score, persistence = estimate_earliest_change_date(
+            earliest_date, persistence, _ = estimate_earliest_change_date(
                 [
                     {
                         "date": item["date"],
@@ -276,7 +277,7 @@ async def get_result_evidence_export(change_id: str) -> Dict[str, Any]:
             "change_type": res.get("change_type", "construction"),
             "change_score": float(res.get("change_score", 0.0)),
             "confidence": float(res.get("confidence", 0.0)),
-            "confidence_level": self._categorize_confidence(float(res.get("confidence", 0.0))),
+            "confidence_level": _categorize_confidence(float(res.get("confidence", 0.0))),
             "earliest_change_date": res.get("earliest_change_date"),
             "evidence": {
                 "before_image_path": evidence_paths.get("before_png", ""),
@@ -287,14 +288,20 @@ async def get_result_evidence_export(change_id: str) -> Dict[str, Any]:
                     "shift_y": float(res.get("registration_shift_px", 0.0)) / np.sqrt(2),
                     "shift_x": float(res.get("registration_shift_px", 0.0)) / np.sqrt(2),
                     "shift_magnitude": float(res.get("registration_shift_px", 0.0)),
-                    "coherence": 0.9  # Placeholder: fetch from actual registration record
+                    "coherence": float(res.get("registration_quality", 0.0))
                 }
             },
             "metadata": {
                 "model_version": res.get("model_version", "unknown"),
+                "semantic_retrieval": "CLIP-RSICD v2 (512-d)",
+                "spectral_representation": "Clay Foundation v1.5 (768-d)",
+                "change_detector": res.get("model_version", "Open-CD SNUNet"),
+                "cloud_masking": "s2cloudless",
+                "co_registration": "AROSICS Phase Correlation",
                 "created_at": res.get("created_at", datetime.now().isoformat()),
                 "processing_version": res.get("processing_version", "v1.0.0")
             },
+            "ccs_breakdown": res.get("ccs_breakdown", {}),
             "reviews": reviews if reviews else []
         }
         
@@ -306,6 +313,62 @@ async def get_result_evidence_export(change_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error exporting evidence for {change_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to export evidence package")
+
+
+@router.get("/{change_id}/similar")
+async def get_similar_sites(
+    change_id: str,
+    top_k: int = Query(10, ge=1, le=50)
+) -> Dict[str, Any]:
+    """Find nearby semantic matches using the selected tile's stored embedding."""
+    source_tile = db.get_tile(change_id)
+    source_change_id = change_id
+    if not source_tile:
+        source_result = db.get_change_result(change_id)
+        if not source_result:
+            raise HTTPException(status_code=404, detail="Tile or change result not found.")
+        source_tile = db.get_tile(source_result.get("after_tile_id", ""))
+        if not source_tile:
+            raise HTTPException(status_code=404, detail="Source tile not found.")
+
+    source_tile_id = source_tile["tile_id"]
+    stored = qdrant_store.get_semantic_tile(source_tile_id)
+    if not stored:
+        raise HTTPException(status_code=404, detail="Source semantic embedding not found.")
+
+    candidates = qdrant_store.search_semantic(stored["vector"], top_k=top_k + 1)
+    results = []
+    for candidate in candidates:
+        if candidate["id"] == source_tile_id:
+            continue
+        payload = candidate.get("payload", {})
+        location_changes = db.get_changes_by_location(payload.get("location_key", ""), limit=1)
+        latest_change = location_changes[0] if location_changes else {}
+        results.append({
+            "tile_id": payload.get("tile_id", candidate["id"]),
+            "change_id": latest_change.get("change_id"),
+            "location_key": payload.get("location_key"),
+            "similarity": round(float(candidate.get("score", 0.0)), 4),
+            "change_confidence": latest_change.get("confidence", 0.0),
+            "confidence_level": _categorize_confidence(float(latest_change.get("confidence", 0.0))),
+            "change_type": latest_change.get("change_type", "similar_site"),
+            "earliest_change_date": latest_change.get("earliest_change_date"),
+            "acquisition_dates": [str(payload.get("acquisition_datetime", ""))[:10]],
+            "sensor": payload.get("sensor", "Sentinel-2 L2A"),
+            "coordinates": [payload.get("longitude", 0.0), payload.get("latitude", 0.0)],
+            "thumbnail_path": payload.get("rgb_filepath", ""),
+            "evidence_paths": latest_change.get("evidence_paths", {}),
+            "source_change_id": source_change_id
+        })
+        if len(results) >= top_k:
+            break
+
+    return {
+        "source_tile_id": source_tile_id,
+        "source_location_key": source_tile.get("location_key"),
+        "results_count": len(results),
+        "results": results
+    }
 
 
 @router.get("/location/{location_key}")
@@ -357,7 +420,6 @@ async def get_location_changes(
         raise HTTPException(status_code=500, detail="Failed to retrieve location changes")
 
 
-@staticmethod
 def _categorize_confidence(confidence: float) -> str:
     """Helper: categorize CCS into confidence level."""
     if confidence >= 0.70:

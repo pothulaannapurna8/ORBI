@@ -18,7 +18,7 @@ def stage_offline_assets():
     print(f"Target weights directory: {WEIGHTS_DIR}")
     print(f"Target raw data directory: {RAW_DIR}")
 
-    # 1. Verify / Create Local Weights Checkpoint Placeholders
+    # 1. Verify cached artifacts without creating empty files that look usable.
     weights_manifest = {
         "clip_rsicd": "clip-rsicd-v2",
         "clay_model": "clay_v1_5.pt",
@@ -28,14 +28,13 @@ def stage_offline_assets():
 
     for key, filename in weights_manifest.items():
         dest = Path(WEIGHTS_DIR) / filename
-        if not dest.exists():
-            print(f"Staging placeholder/cache for {key} at {dest}...")
-            dest.touch()
+        if not dest.exists() or dest.stat().st_size == 0:
+            print(f"Missing usable offline artifact for {key}: {dest}")
         else:
             print(f"Found staged {key} at {dest}")
 
-    print("\nOffline staging verification completed successfully.")
-    print("All core model inference modules operate without live network calls.")
+    print("\nOffline staging verification completed.")
+    print("Local stores and fallback algorithms can run offline; missing model artifacts remain explicit.")
 
 if __name__ == "__main__":
     stage_offline_assets()

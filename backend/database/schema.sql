@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS change_result (
     evidence_paths        JSONB NOT NULL DEFAULT '{}'::jsonb, -- {"before_png": "...", "after_png": "...", "mask_png": "..."}
     registration_shift_px REAL DEFAULT 0.0,                   -- Diagnostic sub-pixel shift from AROSICS
     cloud_mask_quality    REAL DEFAULT 1.0,                   -- Diagnostic clear-sky fraction from s2cloudless
+    registration_quality  REAL DEFAULT 0.0,
+    ccs_breakdown         JSONB,
+    processing_version    TEXT,
     model_version         TEXT NOT NULL,                      -- Pinned model version (e.g. SNUNet-LEVIR-CD-v1.2)
     created_at            TIMESTAMPTZ DEFAULT now()
 );
@@ -63,6 +66,8 @@ CREATE TABLE IF NOT EXISTS review_log (
     change_id    UUID REFERENCES change_result(change_id) ON DELETE CASCADE,
     decision     TEXT NOT NULL CHECK (decision IN ('confirmed', 'rejected')),
     analyst_note TEXT,
+    analyst_id   TEXT,
+    confidence_override REAL,
     reviewed_at  TIMESTAMPTZ DEFAULT now()
 );
 

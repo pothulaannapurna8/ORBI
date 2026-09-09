@@ -51,7 +51,7 @@ def estimate_earliest_change_date(
         change_persistence: Fraction of observations above threshold after earliest change
     """
     if not timeline:
-        return None, 0.0, 0.0
+        return "", 0.0, 0.0
     
     # Sort by date
     sorted_timeline = sorted(timeline, key=lambda x: str(x.get('date', '')))
@@ -65,25 +65,22 @@ def estimate_earliest_change_date(
     if not clean_timeline:
         logger.warning("All observations heavily clouded; no clean timeline")
         max_score = max(obs.get('change_score', 0.0) for obs in sorted_timeline)
-        return None, max_score, 0.0
+        return "", 0.0, 0.0
     
     # Find maximum change score
     max_change_score = max(obs.get('change_score', 0.0) for obs in clean_timeline)
     
-    # Walk forward to find earliest transition with persistence verification
+    # Walk forward and require the change to persist through every later clean observation.
     earliest_date = None
     for i, obs in enumerate(clean_timeline):
-        if obs.get('change_score', 0.0) > threshold:
-            # Check persistence: verify that next 'persistence_lookhead' observations also exceed threshold
-            subsequent = clean_timeline[i:i + persistence_lookhead + 1]
-            
-            # Count how many of the subsequent observations exceed threshold
-            exceeding_count = sum(1 for o in subsequent if o.get('change_score', 0.0) > threshold)
-            
-            # If majority of subsequent observations exceed threshold, mark as earliest change
-            if exceeding_count >= min(persistence_lookhead, len(subsequent)):
-                earliest_date = obs.get('date')
-                break
+        later = clean_timeline[i + 1:]
+        if (
+            obs.get('change_score', 0.0) > threshold
+            and len(later) >= 1
+            and all(o.get('change_score', 0.0) > threshold for o in later)
+        ):
+            earliest_date = obs.get('date')
+            break
     
     # Compute change persistence (fraction of observations above threshold after earliest change)
     if earliest_date:
@@ -97,6 +94,12 @@ def estimate_earliest_change_date(
                 sum(1 for o in remaining if o.get('change_score', 0.0) > threshold) / len(remaining)
                 if remaining else 0.0
             )
+            transient_spikes = any(
+                o.get('change_score', 0.0) > threshold
+                for o in clean_timeline[:earliest_idx]
+            )
+            if transient_spikes:
+                change_persistence *= 0.5
         else:
             change_persistence = 0.0
     else:
@@ -107,7 +110,8 @@ def estimate_earliest_change_date(
         f"persistence={change_persistence:.3f}"
     )
     
-    return earliest_date, max_change_score, change_persistence
+    confidence = 0.85 if earliest_date else 0.40
+    return earliest_date or "", change_persistence, confidence
 
 
 def filter_temporal_outliers(
@@ -200,24 +204,3 @@ def compute_temporal_consistency_score(
     consistency = 1.0 - min(1.0, mean_variance / max_variance)
     
     return float(consistency)
-
-    for i in range(1, n):
-        score = float(sorted_timeline[i].get("change_score", 0.0))
-        if score >= threshold:
-            # Verify if it remains elevated in all subsequent dates
-            subsequent_elevated = True
-            for j in range(i + 1, n):
-                sub_score = float(sorted_timeline[j].get("change_score", 0.0))
-                if sub_score < (threshold * 0.6):
-                    subsequent_elevated = False
-                    break
-            
-            if subsequent_elevated:
-                return sorted_timeline[i].get("date"), temporal_consistency, 0.85
-            else:
-                # Down-weighted candidate
-                pass
-
-    # Fallback to the date of maximum change if no monotonic step-function found
-    max_idx = max(range(1, n), key=lambda idx: float(sorted_timeline[idx].get("change_score", 0.0)))
-    return sorted_timeline[max_idx].get("date"), temporal_consistency, 0.40

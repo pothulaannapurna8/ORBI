@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.config import RAW_DIR
-from backend.ingestion.tiler import scene_tiler
+from backend.ingestion.tiler import tiler
 
 def create_synthetic_s2_scene(
     name: str,
@@ -127,7 +127,7 @@ def populate_demo_dataset():
     total_tiles = 0
     for name, date_str, aoi_type, cloud, new_bldg, water_exp, lat, lon in scenes_meta:
         path, bands = create_synthetic_s2_scene(name, date_str, aoi_type, cloud, new_bldg, water_exp)
-        tiles = scene_tiler.process_and_index_scene(
+        tiles = tiler.process_and_index_scene(
             scene_filepath=path,
             acquisition_datetime=f"{date_str}T10:00:00Z",
             source_id=f"{name}_{date_str}",

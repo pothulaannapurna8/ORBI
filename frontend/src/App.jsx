@@ -21,6 +21,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
+  const [similarResults, setSimilarResults] = useState([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [error, setError] = useState('');
 
   // Perform initial search on mount
   useEffect(() => {
@@ -29,6 +32,7 @@ export default function App() {
 
   const handleSearch = async () => {
     setLoading(true);
+    setError('');
     try {
       let res;
       if (useMultimodal && imageFile && query.trim()) {
@@ -75,16 +79,35 @@ export default function App() {
         const data = await res.json();
         const rawResults = data.results || [];
         setResults(rawResults);
+        setSimilarResults([]);
         if (rawResults.length > 0) {
           setSelectedResult(rawResults[0]);
         } else {
           setSelectedResult(null);
         }
+      } else {
+        setError(`Search request failed (${res.status}). Check that the backend is running.`);
       }
     } catch (err) {
       console.error('Search error:', err);
+      setError('Backend unavailable. Start FastAPI on port 8000 and try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFindSimilar = async (result) => {
+    setSimilarLoading(true);
+    try {
+      const response = await apiFetch(`/results/${result.tile_id}/similar?top_k=10`);
+      if (!response.ok) throw new Error(`Similar-site request failed: ${response.status}`);
+      const data = await response.json();
+      setSimilarResults((data.results || []).map(item => ({ ...item, isSimilar: true })));
+    } catch (error) {
+      console.error('Similar-site search error:', error);
+      setSimilarResults([]);
+    } finally {
+      setSimilarLoading(false);
     }
   };
 
@@ -164,9 +187,19 @@ export default function App() {
               </span>
             </div>
 
-            {filteredResults.length === 0 ? (
+            {error ? (
+              <div style={{ color: '#fbbf24', textAlign: 'center', padding: '32px 12px', fontSize: '13px' }}>{error}</div>
+            ) : loading ? (
+              [1, 2, 3].map(item => <div key={item} className="result-skeleton" />)
+            ) : filteredResults.length === 0 ? (
               <div style={{ color: '#64748b', textAlign: 'center', padding: '40px 10px', fontSize: '13px' }}>
-                No candidate locations match current query or filter thresholds.
+                No results above the confidence threshold.
+                {results.length > filteredResults.length && ` ${results.length - filteredResults.length} candidate(s) were suppressed as likely false alarms.`}
+                {results.length > filteredResults.length && (
+                  <button type="button" onClick={() => setShowSuppressed(true)} style={{ display: 'block', margin: '12px auto 0', background: 'transparent', border: '1px solid #475569', borderRadius: '4px', color: '#67e8f9', padding: '6px 10px', cursor: 'pointer' }}>
+                    Show suppressed
+                  </button>
+                )}
               </div>
             ) : (
               filteredResults.map(item => (
@@ -175,8 +208,25 @@ export default function App() {
                   result={item}
                   isSelected={selectedResult && selectedResult.location_key === item.location_key}
                   onSelect={() => setSelectedResult(item)}
+                  onFindSimilar={handleFindSimilar}
                 />
               ))
+            )}
+            {similarResults.length > 0 && (
+              <div style={{ borderTop: '1px solid #334155', paddingTop: '12px', marginTop: '4px' }}>
+                <div style={{ color: '#67e8f9', fontSize: '12px', fontWeight: 700, marginBottom: '8px', textTransform: 'uppercase' }}>
+                  Similar to selected site ({similarResults.length})
+                </div>
+                {similarResults.map(item => (
+                  <ResultCard
+                    key={`similar-${item.tile_id}`}
+                    result={item}
+                    isSelected={false}
+                    isSimilar
+                    onSelect={() => setSelectedResult(item)}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -278,7 +328,7 @@ export default function App() {
             </div>
 
             {/* Analyst Review Form */}
-            <ReviewPanel result={selectedResult} />
+            <ReviewPanel result={selectedResult} onFindSimilar={handleFindSimilar} similarLoading={similarLoading} />
 
             {/* Evidence Package Exporter */}
             <EvidenceExport result={selectedResult} />
