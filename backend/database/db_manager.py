@@ -58,6 +58,8 @@ class DatabaseManager:
             quality_score REAL DEFAULT 1.0,
             processing_version TEXT NOT NULL,
             location_key TEXT NOT NULL,
+            crs TEXT,
+            scene_bounds TEXT,
             created_at TEXT NOT NULL
         )
         """)
@@ -118,6 +120,14 @@ class DatabaseManager:
         if "processing_version" not in existing_change_columns:
             cur.execute("ALTER TABLE change_result ADD COLUMN processing_version TEXT")
 
+        existing_tile_columns = {
+            row[1] for row in cur.execute("PRAGMA table_info(tile)").fetchall()
+        }
+        if "crs" not in existing_tile_columns:
+            cur.execute("ALTER TABLE tile ADD COLUMN crs TEXT")
+        if "scene_bounds" not in existing_tile_columns:
+            cur.execute("ALTER TABLE tile ADD COLUMN scene_bounds TEXT")
+
         conn.commit()
         conn.close()
 
@@ -136,8 +146,9 @@ class DatabaseManager:
                 tile_id, geometry, latitude, longitude, sensor,
                 acquisition_datetime, cloud_cover, source, filepath,
                 rgb_filepath, embedding_id_semantic, embedding_id_spectral,
-                quality_score, processing_version, location_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                quality_score, processing_version, location_key, crs,
+                scene_bounds, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             tile_id,
             geom_str,
@@ -154,6 +165,8 @@ class DatabaseManager:
             float(tile_data.get("quality_score", 1.0)),
             tile_data.get("processing_version", "v1.0.0"),
             tile_data.get("location_key", "default_loc"),
+            tile_data.get("crs"),
+            json.dumps(tile_data.get("scene_bounds")) if tile_data.get("scene_bounds") else None,
             now_iso
         ))
         conn.commit()

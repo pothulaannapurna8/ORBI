@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.config import RAW_DIR
-from backend.ingestion.tiler import scene_tiler
+from backend.ingestion.tiler import tiler
 from backend.database.qdrant_client import qdrant_store
 from backend.database.db_manager import db
 
@@ -31,7 +31,7 @@ def rebuild_full_index():
         lat = 12.9716 if "URBAN" in name else 13.0827
         lon = 77.5946 if "URBAN" in name else 80.2707
 
-        tiles = scene_tiler.process_and_index_scene(
+        tiles = tiler.process_and_index_scene(
             scene_filepath=str(f),
             acquisition_datetime=f"{date_str}T10:00:00Z",
             source_id=name,

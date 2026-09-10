@@ -322,7 +322,9 @@ To demonstrate incremental ingestion without whole-archive recomputation:
 2. Disconnect Wi-Fi / Ethernet in the deployment environment.
 3. Run `python -m pytest -q` and execute one text and one image search against local Qdrant/SQLite stores.
 
-The local verification run returned text and image results without network-backed services. The repository does not include trained CLIP-RSICD, Clay, or Open-CD checkpoint artifacts, so offline fallback encoders and the SNUNet architecture fallback remain explicit until those weights are staged. The staging script reports missing artifacts instead of creating empty placeholder files.
+The synthetic demo archive was verified and quarantined under `data/quarantine/`. The current local index contains only two real Earth Search Sentinel-2 L2A items: `S2A_43PGQ_20240118_0_L2A` and `S2B_43PGQ_20250117_0_L2A`. Their STAC sidecars retain exact acquisition timestamps, non-rounded cloud cover, collection, provider, grid, and EPSG metadata. The local diagnostic reports 2 semantic points, 2 spectral points, 2 SQLite tiles, and non-zero embeddings.
+
+The repository does not include trained CLIP-RSICD, Clay, or Open-CD checkpoint artifacts, so offline fallback encoders and the SNUNet architecture fallback remain explicit until those weights are staged. The staging script reports missing artifacts instead of creating empty placeholder files.
 
 ---
 
@@ -349,7 +351,7 @@ The local verification run returned text and image results without network-backe
 - **Scalability**: Location-key optimization enables efficient scaling
 - **Maintainability**: Well-structured code with clear interfaces and type hints
 
-**Verification limits:** The repository does not ship trained CLIP-RSICD, Clay, or Open-CD checkpoint files. When those artifacts are absent, local fallback encoders and the SNUNet architecture fallback keep the pipeline runnable, but model-backed production accuracy is not claimed until the weights are staged.
+**Verification limits:** The repository does not ship trained CLIP-RSICD, Clay, or Open-CD checkpoint files. When those artifacts are absent, local fallback encoders and the SNUNet architecture fallback keep the pipeline runnable, but model-backed production accuracy is not claimed until the weights are staged. The current real-data sample contains two dates for one MGRS tile, so earliest-change comparisons are limited to that pair.
 
 ---
 
@@ -408,4 +410,4 @@ OPEN_CD_CHECKPOINT=data/weights/open_cd_snunet.pt
 
 ---
 
-**Status**: ✅ **Phase 4 Implementation Complete** - End-to-end local pipeline, discovery API, provenance export, and analyst dashboard are implemented. Current verification includes 44 indexed tiles, successful local text/image searches, a passing frontend build, and 14/16 automated tests passing; two legacy review fixtures remain to be updated.
+**Status**: ✅ **Real-data replacement complete** - Synthetic inputs were quarantined, two Earth Search Sentinel-2 L2A scenes were staged and indexed, CRS/bounds and STAC provenance persist in SQLite, and both Qdrant collections contain 2 real-scene points. The diagnostic passes integrity checks; trained model weights remain a separate deployment prerequisite.

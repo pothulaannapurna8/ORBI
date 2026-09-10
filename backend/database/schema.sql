@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS tile (
     quality_score        REAL DEFAULT 1.0,                    -- Combined s2cloudless & registration metric
     processing_version   TEXT NOT NULL DEFAULT 'v1.0.0',
     location_key         TEXT NOT NULL,                       -- Snapped regular grid cell ID (e.g. loc_grid_12_77)
+    crs                   TEXT,
+    scene_bounds          JSONB,
     created_at           TIMESTAMPTZ DEFAULT now()
 );
 

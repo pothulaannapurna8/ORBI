@@ -11,6 +11,16 @@ from PIL import Image
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 
+try:
+    import rasterio
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import Window, bounds as window_bounds
+except ImportError:
+    rasterio = None
+    transform_bounds = None
+    window_bounds = None
+    Window = None
+
 from backend.config import TILES_DIR, TILE_SIZE_PX, TILE_GSD_METERS
 from backend.embeddings.clip_rsicd_encoder import clip_encoder
 from backend.embeddings.clay_encoder import clay_encoder
@@ -39,22 +49,39 @@ class SceneTiler:
         center_lat: float,
         center_lon: float,
         sensor: str = "Sentinel-2 L2A",
-        raw_bands: np.ndarray = None
+        raw_bands: np.ndarray = None,
+        cloud_cover: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
         Ingests a scene, tiles into 512x512 chips, performs quality masking,
         generates dual embeddings, and indexes into Qdrant & PostGIS/SQLite.
         """
+        scene_crs = None
+        scene_bounds = None
+        scene_transform = None
+
         # If raw_bands not provided, load from image or generate realistic synthetic multi-spectral
         if raw_bands is None:
             if os.path.exists(scene_filepath):
-                pil_img = Image.open(scene_filepath).convert("RGB")
-                rgb_arr = np.array(pil_img, dtype=np.float32) / 255.0
-                # Shape [3, H, W]
-                raw_bands = np.transpose(rgb_arr, (2, 0, 1))
+                if rasterio is not None and Path(scene_filepath).suffix.lower() in {".tif", ".tiff", ".cog"}:
+                    with rasterio.open(scene_filepath) as dataset:
+                        raw_bands = dataset.read().astype(np.float32)
+                        if np.max(raw_bands) > 1.0:
+                            raw_bands /= 255.0
+                        scene_crs = str(dataset.crs) if dataset.crs else None
+                        scene_bounds = list(dataset.bounds)
+                        scene_transform = dataset.transform
+                else:
+                    pil_img = Image.open(scene_filepath).convert("RGB")
+                    rgb_arr = np.array(pil_img, dtype=np.float32) / 255.0
+                    raw_bands = np.transpose(rgb_arr, (2, 0, 1))
+                    scene_crs = None
+                    scene_bounds = None
             else:
                 # Fallback to standard 512x512 tile
                 raw_bands = np.random.uniform(0.1, 0.8, (13, self.tile_size, self.tile_size)).astype(np.float32)
+                scene_crs = None
+                scene_bounds = None
 
         c, h, w = raw_bands.shape
         tiles_indexed = []
@@ -110,7 +137,7 @@ class SceneTiler:
                     "location_key": location_key,
                     "sensor": sensor,
                     "acquisition_datetime": acquisition_datetime,
-                    "cloud_cover": cloud_fraction,
+                    "cloud_cover": cloud_cover if cloud_cover else cloud_fraction,
                     "quality_score": quality_score,
                     "source": source_id,
                     "rgb_filepath": str(rgb_path),
@@ -133,6 +160,28 @@ class SceneTiler:
                         [tile_lon - 0.023, tile_lat - 0.023]
                     ]]
                 }
+                tile_bounds = None
+                if scene_transform is not None and scene_crs and Window and window_bounds and transform_bounds:
+                    source_bounds = window_bounds(
+                        Window(x_start, y_start, x_end - x_start, y_end - y_start),
+                        scene_transform
+                    )
+                    tile_bounds = transform_bounds(
+                        scene_crs,
+                        "EPSG:4326",
+                        *source_bounds
+                    )
+                    min_lon, min_lat, max_lon, max_lat = tile_bounds
+                    geometry_geojson = {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [min_lon, min_lat],
+                            [max_lon, min_lat],
+                            [max_lon, max_lat],
+                            [min_lon, max_lat],
+                            [min_lon, min_lat]
+                        ]]
+                    }
 
                 tile_record = {
                     "tile_id": tile_id,
@@ -141,7 +190,7 @@ class SceneTiler:
                     "longitude": tile_lon,
                     "sensor": sensor,
                     "acquisition_datetime": acquisition_datetime,
-                    "cloud_cover": cloud_fraction,
+                    "cloud_cover": cloud_cover if cloud_cover else cloud_fraction,
                     "source": source_id,
                     "filepath": scene_filepath,
                     "rgb_filepath": str(rgb_path),
@@ -151,6 +200,10 @@ class SceneTiler:
                     "processing_version": "v1.0.0",
                     "location_key": location_key
                 }
+                if scene_crs:
+                    tile_record["crs"] = scene_crs
+                if scene_bounds:
+                    tile_record["scene_bounds"] = scene_bounds
                 db.insert_tile(tile_record)
                 tiles_indexed.append(tile_record)
 

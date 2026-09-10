@@ -78,7 +78,9 @@ class IncrementalIngestionService:
         acquisition_date: str = "2025-11-20",
         source_name: str = "S2_INCOMING",
         center_lat: float = 12.9716,
-        center_lon: float = 77.5946
+        center_lon: float = 77.5946,
+        acquisition_datetime: Optional[str] = None,
+        cloud_cover: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Incrementally processes one scene file.
@@ -113,10 +115,11 @@ class IncrementalIngestionService:
             
             new_tiles = self.tiler.process_and_index_scene(
                 scene_filepath=filepath,
-                acquisition_datetime=f"{acquisition_date}T10:30:00Z",
+                acquisition_datetime=acquisition_datetime or f"{acquisition_date}T10:30:00Z",
                 source_id=source_name,
                 center_lat=center_lat,
-                center_lon=center_lon
+                center_lon=center_lon,
+                cloud_cover=cloud_cover or 0.0
             )
             
             if not new_tiles:

@@ -24,6 +24,7 @@ data/weights/*
 data/metadata.db
 data/qdrant_storage/*
 !data/qdrant_storage/.gitkeep
+data/quarantine/*
 
 # Tool and OS files
 .vscode/
