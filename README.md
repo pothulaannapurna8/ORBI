@@ -253,20 +253,20 @@ Keep local databases, Qdrant storage, raw imagery, generated tiles, and model ar
 
 To start the containerized stack:
 
-## Render deployment
+## Free demo deployment
 
-The repository includes `render.yaml` for a Render Blueprint with four services:
+The default `render.yaml` is a free Render Blueprint for the FastAPI backend. It uses temporary local SQLite and Qdrant storage, so data can be lost when the free service restarts or redeploys.
 
-- React/Vite frontend as a static site.
-- FastAPI backend from `docker/Dockerfile.backend`.
-- PostgreSQL database.
-- Private Qdrant service with a persistent disk.
+Deploy the backend from Render with **New + > Blueprint**, select this repository, choose branch `main`, and use `render.yaml`. After deployment, copy the backend URL, for example `https://ps26227-backend-demo.onrender.com`.
 
-Deploy it from the Render dashboard with **New + > Blueprint**, select this GitHub repository, and choose `render.yaml`. Keep all services in the same region. Render will provide the database variables and backend URL to the other services automatically.
+Deploy the frontend separately on Netlify:
 
-The first deployment may take several minutes because the backend installs PyTorch, rasterio, and the other model dependencies. After deployment, open the frontend URL and check the backend health endpoint at `/health`.
+1. Choose **Add new site > Import an existing project** and select `pothulaannapurna8/ORBI`.
+2. Netlify reads `netlify.toml`; confirm the publish directory is `frontend/dist`.
+3. Add environment variable `VITE_API_URL` with the Render backend URL.
+4. Deploy the site and open its Netlify URL.
 
-Render deployments do not include local files ignored by Git. Upload or ingest production imagery after deployment, and provide model weights through the backend service's persistent storage or an approved artifact source.
+This free split setup is for demos and testing. The Render backend may sleep when idle, and local database/vector data is not persistent.
 
 ```powershell
 cd docker

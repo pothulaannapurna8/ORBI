@@ -1,70 +1,20 @@
 services:
-  - type: pserv
-    name: ps26227-qdrant
-    runtime: docker
-    region: oregon
-    plan: starter
-    dockerfilePath: ./docker/Dockerfile.qdrant
-    dockerContext: .
-    disk:
-      name: qdrant-data
-      mountPath: /qdrant/storage
-      sizeGB: 10
-
   - type: web
-    name: ps26227-backend
+    name: ps26227-backend-demo
     runtime: docker
     region: oregon
-    plan: starter
+    plan: free
     dockerfilePath: ./docker/Dockerfile.backend
     dockerContext: .
     healthCheckPath: /health
     envVars:
       - key: USE_LOCAL_SQLITE_FALLBACK
-        value: "false"
+        value: "true"
       - key: USE_LOCAL_QDRANT_STORAGE
-        value: "false"
-      - key: QDRANT_HOST
-        value: ps26227-qdrant
-      - key: QDRANT_PORT
-        value: "6333"
-      - key: POSTGRES_HOST
-        fromDatabase:
-          name: ps26227-postgres
-          property: host
-      - key: POSTGRES_PORT
-        fromDatabase:
-          name: ps26227-postgres
-          property: port
-      - key: POSTGRES_DB
-        fromDatabase:
-          name: ps26227-postgres
-          property: database
-      - key: POSTGRES_USER
-        fromDatabase:
-          name: ps26227-postgres
-          property: user
-      - key: POSTGRES_PASSWORD
-        fromDatabase:
-          name: ps26227-postgres
-          property: password
-
-  - type: web
-    name: ps26227-frontend
-    runtime: static
-    buildCommand: npm ci && npm run build
-    staticPublishPath: ./dist
-    rootDir: frontend
-    envVars:
-      - key: VITE_API_URL
-        fromService:
-          type: web
-          name: ps26227-backend
-          property: host
-
-databases:
-  - name: ps26227-postgres
-    region: oregon
-    plan: starter
-    databaseName: sih_eo_db
-    user: sih_eo_user
+        value: "true"
+      - key: QDRANT_STORAGE_DIR
+        value: /tmp/qdrant_storage
+      - key: QDRANT_LOCAL_PATH
+        value: /tmp/qdrant_storage
+      - key: API_HOST
+        value: 0.0.0.0
