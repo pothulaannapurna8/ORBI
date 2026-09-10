@@ -27,12 +27,13 @@ logger = logging.getLogger(__name__)
 
 class TextSearchRequest(BaseModel):
     query: str
-    date_from: Optional[str] = "2024-01-01"
-    date_to: Optional[str] = "2026-01-01"
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
     date_start: Optional[str] = None
     date_end: Optional[str] = None
     sensor: Optional[str] = None
     top_k: Optional[int] = 20
+    limit: Optional[int] = None
 
 def filter_candidates_by_date(
     candidates: List[Dict[str, Any]],
@@ -234,8 +235,9 @@ def search_text(req: TextSearchRequest):
     Parses intent, generates CLIP text embedding, searches Qdrant,
     resolves candidates through temporal pipeline, and reranks by CCS.
     """
-    if req.top_k is not None and not 1 <= req.top_k <= 100:
-        raise HTTPException(status_code=400, detail="top_k must be between 1 and 100")
+    requested_top_k = req.limit or req.top_k or 20
+    if not 1 <= requested_top_k <= 100:
+        raise HTTPException(status_code=400, detail="limit/top_k must be between 1 and 100")
 
     parsed = parse_query_rules(req.query)
     # 1. Encode text via CLIP-RSICD
@@ -244,7 +246,7 @@ def search_text(req: TextSearchRequest):
     # 2. Qdrant kNN search
     candidates = qdrant_store.search_semantic(
         query_vector=query_vec,
-        top_k=req.top_k or 20,
+        top_k=requested_top_k,
         sensor=req.sensor
     )
 

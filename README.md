@@ -1,433 +1,259 @@
-# PS26227 — Text/Image Semantic Retrieval + Multi-Temporal Change Analysis
+# PS26227 Earth Observation Change Intelligence
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Qdrant](https://img.shields.io/badge/Vector_DB-Qdrant-red.svg)](https://qdrant.tech/)
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-teal.svg)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/Frontend-React_+_MapLibre_GL-blue.svg)](https://maplibre.org/)
-[![Real Multispectral Data](https://img.shields.io/badge/Status-Real_Multispectral_Data-success.svg)](https://github.com/)
+PS26227 is a cross-modal Earth Observation system for searching Sentinel-2 L2A imagery and detecting persistent land-use change. It combines natural-language and image retrieval with multi-temporal registration, change detection, water analysis, false-alarm suppression, and analyst review.
 
-A full, production-oriented implementation of **Problem Statement PS26227**: Cross-modal natural-language and satellite image retrieval combined with automated multi-temporal change detection, sub-pixel registration, and false-alarm suppression for Earth Observation (Sentinel-2 L2A).
+## Architecture
 
-**Real-data integration complete**: The active index uses six full-band Sentinel-2 L2A scene windows across three real AOIs, with STAC provenance, native UTM CRS, uint16 reflectance bands, and incremental ingestion.
-
----
-
-## 1. System Architecture & Phase 4 Enhancements
-
-```
-                 NATURAL LANGUAGE QUERY                    UPLOADED SATELLITE IMAGE
-             "newly built structures near river"           (GeoTIFF / COG / PNG / JPEG)
-                            │                                         │
-                            ▼                                         ▼
-                 ┌──────────────────────┐                  ┌──────────────────────┐
-                 │ Rule/Keyword Parser  │                  │ Format & Resolution  │
-                 │ (Change/Object/Date) │                  │ Normalization        │
-                 └──────────┬───────────┘                  └──────────┬───────────┘
-                            │                                         │
-                            ▼                                         ▼
-                 ┌────────────────────────────────────────────────────────┐
-                 │             CLIP-RSICD Dual-Tower Encoder              │
-                 │          (512-d L2-Normalized Vector Space)            │
-                 └──────────────────────────┬─────────────────────────────┘
-                                            │
-                                            ▼
-                 ┌────────────────────────────────────────────────────────┐
-                 │             Qdrant Vector Database                     │
-                 │   - semantic_tiles (512-d, Cosine similarity)          │
-                 │   - spectral_tiles (768-d Clay MAE representation)     │
-                 └──────────────────────────┬─────────────────────────────┘
-                                            │
-                                            ▼
-                 ┌────────────────────────────────────────────────────────┐
-                 │        PostgreSQL / PostGIS / SQLite Metadata          │
-                 │  - Resolves candidate geographic location_keys         │
-                 │  - Fetches all historical acquisition dates on record  │
-                 └──────────────────────────┬─────────────────────────────┘
-                                            │
-                                            ▼
-                 ┌────────────────────────────────────────────────────────┐
-                 │                Multi-Temporal Pipeline                 │
-                 │  1. s2cloudless quality mask (cloud obstruction score) │
-                 │  2. AROSICS sub-pixel co-registration (shift alignment)│
-                 │  3. Open-CD deep change detection (SNUNet/TinyCD)      │
-                 │  4. NDWI water extent analysis (water expansion/loss)  │
-                 │  5. Earliest-change-date walk forward                  │
-                 │  6. Change Confidence Score (false-alarm suppression)  │
-                 └──────────────────────────┬─────────────────────────────┘
-                                            │
-                                            ▼
-                 ┌────────────────────────────────────────────────────────┐
-                 │                 Reranking Engine                       │
-                 │  Final Score = 0.5 * Similarity + 0.5 * CCS            │
-                 └──────────────────────────┬─────────────────────────────┘
-                                            │
-                                            ▼
-                 ┌────────────────────────────────────────────────────────┐
-                 │               React + MapLibre GL Dashboard            │
-                 │  - Interactive color-coded confidence markers          │
-                 │  - Synchronized Before/After viewer with change mask   │
-                 │  - Model audit & provenance panel                      │
-                 │  - Human-in-the-loop Confirm/Reject review logging     │
-                 │  - Full JSON evidence export package                   │
-                 └────────────────────────────────────────────────────────┘
+```text
+Sentinel-2 L2A GeoTIFF/COG
+        |
+        v
+Raster validation and uint16 reflectance normalization
+        |
+        v
+512x512 tiling at 10 m GSD
+        |
+        +--> CLIP-RSICD image/text encoder -> 512-d semantic_tiles Qdrant collection
+        |
+        +--> Clay MAE multispectral encoder -> 768-d spectral_tiles Qdrant collection
+        |
+        +--> PostGIS metadata catalog, or SQLite fallback for local development
+        |
+        v
+Cloud masking -> AROSICS registration -> Open-CD -> NDWI -> temporal analysis
+        |
+        v
+CCS reranking -> FastAPI API -> React + MapLibre GL analyst dashboard
 ```
 
----
+### Core services
 
-### Phase 4 New Features
+- **Ingestion:** `backend/ingestion/tiler.py` loads Sentinel-2 L2A `uint16` bands, normalizes reflectance, creates stable `location_key` grid cells, writes RGB evidence tiles, and indexes both embedding spaces.
+- **Vector search:** Qdrant stores independent 512-dimensional CLIP-RSICD semantic vectors and 768-dimensional Clay MAE spectral vectors using cosine similarity.
+- **Metadata:** PostgreSQL/PostGIS is the production catalog. SQLite is the automatic local fallback and stores tile metadata, change results, and review audit records.
+- **Change analysis:** s2cloudless quality masking, AROSICS sub-pixel co-registration, Open-CD SNUNet/TinyCD inference, NDWI water extent analysis, and earliest persistent-change estimation.
+- **API:** FastAPI exposes search, ingestion, results, temporal evidence, health, and analyst review endpoints.
+- **UI:** React, Vite, and MapLibre GL provide map discovery, confidence markers, split-screen evidence comparison, CCS visualization, and review logging.
 
-#### 🔍 **Incremental Watch Folder Service**
-- **Automated Scene Monitoring**: Real-time watchdog service monitoring `data/incoming/` for new Sentinel-2 scenes
-- **Smart Processing**: Triggers tiling, cloud masking, vector encoding, and incremental Qdrant/PostGIS upserts
-- **Location-Key Optimization**: Re-evaluates multi-temporal change detection ONLY for affected grid cells
-- **No Full Rebuild**: Avoids expensive whole-archive recomputation
+## False-Alarm Suppression
 
-#### 🎨 **Advanced React Dashboard**
-- **Interactive Split-Screen Viewer**: Drag-to-resize before/after comparison with synchronized slider
-- **Multimodal Search**: Text + image blending toggle with configurable weights (50% text + 50% image)
-- **Date Range Filtering**: Advanced temporal filtering with start/end date pickers
-- **CCS Component Breakdown**: Visual display of Change Confidence Score components:
-  - Change Evidence (40%)
-  - Cloud Quality (20%)
-  - Registration Quality (20%)
-  - Temporal Consistency (20%)
-- **Enhanced Review Panel**: Sensor metadata, visual progress bars, and color-coded indicators
-- **Multiple View Modes**: Split slider and side-by-side comparison options
-- **Similar-Site Discovery**: Find comparable locations from the selected tile's stored Qdrant embedding
-- **Analyst Feedback States**: Loading skeletons, suppressed-result explanations, review validation, and confirmation feedback
-- **Distinct Discovery Markers**: Similar sites use cyan square markers so they are visually separate from confidence markers
+The Change Confidence Score is a multi-factor engineering score, not a calibrated probability:
 
-#### 📊 **Comprehensive Evaluation Suite**
-- **Retrieval Benchmark**: Recall@K, Precision@K, Mean Reciprocal Rank (MRR), latency percentiles
-- **Change Detection Metrics**: True positive rates, false-alarm suppression, registration quality
-- **Error Handling**: Robust error handling with detailed categorization and reporting
-- **JSON Report Generation**: Automated export of detailed metrics for audit trails
-- **Multi-Location Testing**: Validation across urban and river basin scenarios
+$$
+CCS = 0.40E + 0.20(1-C) + 0.20R + 0.20T
+$$
 
-#### 🧪 **Enhanced Test Infrastructure**
-- **16 Comprehensive Test Cases**: Expanded from 7 tests covering all major components
-- **Boundary Value Testing**: CCS categorization at exact threshold values
-- **Edge Case Handling**: Empty queries, invalid parameters, insufficient data scenarios
-- **Integration Testing**: Image search, multimodal search, temporal endpoints
-- **Detailed Reporting**: Pass/fail statistics with error categorization and success rates
+Where:
 
-**Latest local verification:** Full-band diagnostic passed with 40 SQLite tiles, 40 semantic Qdrant points, 40 spectral Qdrant points, 20 location keys, finite non-zero embeddings, and no diagnostic warnings. Real-band checks produced NDWI range `-0.8604..0.7831` with standard deviation `0.1279`; s2cloudless produced cloud fraction `0.0000131` and 36 masked pixels on one scene.
+- $E$ is Open-CD change evidence.
+- $C$ is cloud contamination, so clear-sky quality is $1-C$.
+- $R$ is co-registration quality.
+- $T$ is temporal consistency across observations.
 
----
+Classification thresholds:
 
-## 2. Core Technology Stack & License Verification
+- `CCS >= 0.70`: high-confidence change, shown in green.
+- `0.40 <= CCS < 0.70`: analyst review required, shown in amber.
+- `CCS < 0.40`: suppressed by default, shown in red or available through suppressed-result controls.
 
-### Active Real Dataset
+The final retrieval score combines semantic similarity and change confidence:
 
-The active dataset contains six full-band multispectral windows downloaded from the Earth Search STAC API (`sentinel-2-l2a`). These are not thumbnails. Each staged GeoTIFF contains 12 real uint16 reflectance bands: B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12, plus B01. Earth Search does not expose B10 in this L2A COG collection; the omission is recorded in every metadata sidecar. Native scene CRS is retained: EPSG:32643 for MGRS 43PGQ and EPSG:32644 for MGRS 44PMV.
+$$
+final\_score = 0.50 \cdot semantic\_similarity + 0.50 \cdot CCS
+$$
 
-| AOI | STAC scene | Acquisition date | Cloud cover | CRS |
-|---|---|---:|---:|---|
-| urban_edge | `S2B_43PGQ_20250206_0_L2A` | 2025-02-06 | 0.0098% | EPSG:32643 |
-| urban_edge | `S2C_43PGQ_20251208_0_L2A` | 2025-12-08 | 0.0057% | EPSG:32643 |
-| coastline | `S2B_44PMV_20241026_0_L2A` | 2024-10-26 | 0.6158% | EPSG:32644 |
-| coastline | `S2C_44PMV_20260305_0_L2A` | 2026-03-05 | 0.8766% | EPSG:32644 |
-| agriculture_edge | `S2B_43PGQ_20250206_0_L2A` | 2025-02-06 | 0.0098% | EPSG:32643 |
-| agriculture_edge | `S2C_43PGQ_20251208_0_L2A` | 2025-12-08 | 0.0057% | EPSG:32643 |
+## Watch-Folder Ingestion
 
-The former synthetic/thumbnail archive is quarantined under `data/quarantine/`; no thumbnail-derived record remains in the active SQLite or Qdrant index.
+`backend/ingestion/watch_folder.py` provides incremental scene monitoring for `data/incoming/`.
 
-| Component | Technology | Role | License |
-|---|---|---|---|
-| **Semantic Embeddings** | CLIP-RSICD v2 | Text & image cross-modal retrieval (512-d) | **Apache-2.0** |
-| **Spectral Embeddings** | Clay Foundation Model v1.5 | 13-band Sentinel-2 MAE embeddings (768-d) | **Apache-2.0** |
-| **Change Detection** | Open-CD (SNUNet / TinyCD) | Multi-temporal building & construction detection | **Apache-2.0** |
-| **Water Variation** | NDWI Difference Engine | $(Green - NIR)/(Green + NIR)$ water change typing | **MIT** |
-| **Cloud Masking** | s2cloudless | Pixel-level cloud probability & clear-sky score | **CC-BY-SA-4.0** |
-| **Co-Registration** | AROSICS | Sub-pixel phase correlation alignment | **Apache-2.0** |
-| **Vector Database** | Qdrant | Dual collection index (`semantic_tiles`, `spectral_tiles`) | **Apache-2.0** |
-| **Metadata Catalog** | PostGIS + pgSTAC / SQLite | GeoJSON boundaries, provenance, review audit logs | **Apache-2.0** |
-| **Backend Framework** | FastAPI | Async REST API with OpenAPI specification | **MIT** |
-| **Frontend UI** | React + MapLibre GL + Vite | Analyst dashboard, split viewer, review workflow | **BSD-3 / MIT** |
-| **Folder Monitoring** | watchdog | Real-time file system monitoring for incremental ingestion | **Apache-2.0** |
-| **Geospatial Processing** | rasterio | GeoTIFF/COG scene tiling and coordinate transformations | **BSD-3** |
-| **ML Metrics** | scikit-learn | Evaluation metrics and benchmarking utilities | **BSD-3** |
-| **Orchestration** | Docker Compose | Reproducible multi-service deployment | **Apache-2.0** |
+The service:
 
----
+1. Handles native file creation events and atomic temporary-file-to-final-file move events.
+2. Moves stabilization work to a background thread so the watchdog event loop is never blocked.
+3. Waits for a non-empty file to become readable with stable size and modification time across repeated checks.
+4. Processes only after the OS copy/write operation has settled.
+5. Captures worker exceptions and failed ingestion results in logs and handler state.
+6. Derives the scene center from GeoTIFF CRS and bounds when available.
+7. Tiles, masks, embeds, and upserts only the affected `location_key` cells.
+8. Re-runs temporal change analysis only for those affected cells; it does not rebuild the archive.
 
-## 3. False-Alarm Suppression: Change Confidence Score (CCS)
+The integration test uses an isolated Qdrant directory through `QDRANT_STORAGE_DIR` and removes its temporary scene and vector-store artifacts after execution.
 
-The system computes a multi-factor **Change Confidence Score (CCS)** to prevent seasonal shifts, illumination differences, and cloud reflections from triggering false alarms:
+## Analyst UI
 
-$$\text{CCS} = 0.4 \cdot \text{change\_evidence} + 0.2 \cdot (1 - \text{cloud\_score}) + 0.2 \cdot \text{reg\_quality} + 0.2 \cdot \text{temporal\_consistency}$$
+The frontend is in `frontend/` and includes:
 
-### Confidence Categorization:
-- **$\ge 0.70$ (High Confidence)**: Prominently surfaced on map in Green with change mask.
-- **$0.40 - 0.70$ (Needs Review)**: Flagged in Amber for analyst inspection.
-- **$< 0.40$ (Suppressed)**: Filtered from default view, available via *"Show Suppressed"* toggle.
+- MapLibre GL confidence-colored markers and location selection.
+- Natural-language, image, and multimodal search.
+- Before/after split comparison slider with change-mask evidence.
+- CCS component visualizer for change evidence, cloud quality, registration, and temporal consistency.
+- Similar-site discovery from stored semantic vectors.
+- Confirm/reject analyst workflow with notes and persisted audit logging.
+- Evidence export and temporal history views.
 
-> **Discipline Notice:** This metric is explicitly labeled in the UI as **Change Confidence Score**, never as a calibrated probability.
+## Quickstart
 
----
+### Requirements
 
-## 4. Quickstart: Running the Application
+- Python 3.11+
+- Node.js and npm
+- A project virtual environment at `.venv`
+- Optional: PostgreSQL/PostGIS and a remote Qdrant service
 
-### Option A: Local Native Execution (Fastest for Testing)
+Install Python dependencies in the project environment:
 
-#### 1. Start the Backend API
-```bash
-# From project root
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```powershell
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
-- API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Health Check: [http://localhost:8000/health](http://localhost:8000/health)
 
-#### 2. Start the Frontend Dashboard
-```bash
+### Start the backend
+
+From the repository root:
+
+```powershell
+.venv\Scripts\python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Useful endpoints:
+
+- API documentation: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/health`
+
+### Start the frontend
+
+```powershell
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 0.0.0.0
 ```
-- Dashboard UI: [http://localhost:3000](http://localhost:3000)
 
----
+Vite uses port 3000 by default and selects the next available port when 3000 is occupied.
 
-### Option B: Docker Compose Deployment
+### Start the watch-folder service
 
-Launch the complete containerized stack (Qdrant, PostGIS, FastAPI Backend, React Frontend):
+The API can start the background watcher through the application lifecycle. For a standalone watcher:
 
-```bash
+```powershell
+.venv\Scripts\python -m backend.ingestion.watch_folder
+```
+
+Copy `.tif`, `.tiff`, `.cog`, or `.geotiff` scenes into `data/incoming/` after the watcher is running.
+
+## Model Weights
+
+Run the staging command when network access and approved model sources are available:
+
+```powershell
+.venv\Scripts\python scripts/download_weights.py
+```
+
+Expected locations for full-accuracy artifacts:
+
+- `data/weights/clip_rsicd/` for CLIP-RSICD Hugging Face files.
+- `data/weights/open_cd/open_cd_snunet.pt` for the Open-CD checkpoint.
+- `data/weights/clay_v1_5.pt` for Clay MAE weights.
+
+Configure downloads with `CLIP_HF_REPO`, `OPEN_CD_WEIGHTS_URL`, `OPEN_CD_HF_REPO`, and `OPEN_CD_HF_FILE`. Set `OPEN_CD_SHA256` to verify checkpoint integrity.
+
+Verify a disconnected environment without network access:
+
+```powershell
+.venv\Scripts\python scripts/download_weights.py --offline
+```
+
+The current repository contains zero-byte placeholders rather than the CLIP-RSICD and Open-CD pretrained artifacts. Offline verification therefore succeeds with explicit messages that the runtime will use its deterministic CLIP encoder and Otsu Open-CD fallback. These fallbacks are suitable for local pipeline validation, not full pretrained-model accuracy.
+
+## Testing
+
+Run the complete Python suite:
+
+```powershell
+.venv\Scripts\python -m pytest -q
+```
+
+The suite covers API health, search, review, CCS, temporal logic, registration, edge cases, and incremental ingestion. The incremental test creates a 512x512 GeoTIFF, sends it through the watch-folder handler, verifies Qdrant and SQLite/PostGIS-compatible persistence, confirms that only the expected grid cell changes, and cleans up.
+
+Run the integration test alone with isolated Qdrant storage:
+
+```powershell
+$env:QDRANT_STORAGE_DIR = "$PWD\data\qdrant_ingest_test"
+$env:QDRANT_LOCAL_PATH = $env:QDRANT_STORAGE_DIR
+.venv\Scripts\python -m pytest tests/test_incremental_ingestion.py -q
+```
+
+Run the offline model check:
+
+```powershell
+.venv\Scripts\python scripts/download_weights.py --offline
+```
+
+Run the Playwright frontend test:
+
+```powershell
+cd frontend
+npx playwright install
+npx playwright test tests/ps26227.spec.js --project=chromium
+```
+
+The Playwright flow searches for newly built structures near a river, checks confidence markers, drags the comparison slider, and confirms an analyst review.
+
+## API Surface
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | Service, model, and Qdrant health |
+| `POST` | `/search/text` | Natural-language semantic search |
+| `POST` | `/search/image` | Image similarity search |
+| `POST` | `/search/multimodal` | Text and image blended search |
+| `POST` | `/ingest` | Synchronous scene ingestion |
+| `GET` | `/results/{change_id}` | Change result and review history |
+| `GET` | `/results/{location_key}/temporal` | Location timeline and earliest change |
+| `GET` | `/results/{change_id}/evidence` | Evidence export |
+| `GET` | `/results/{location_key}/similar` | Similar-site discovery |
+| `POST` | `/review/{change_id}` | Confirm or reject a result with notes |
+| `GET` | `/review/{change_id}` | Review audit history |
+
+## Configuration
+
+Important environment variables include:
+
+- `USE_LOCAL_SQLITE_FALLBACK=true`
+- `USE_LOCAL_QDRANT_STORAGE=true`
+- `QDRANT_STORAGE_DIR` and `QDRANT_LOCAL_PATH`
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `CLIP_RSICD_MODEL`, `CLAY_WEIGHTS_PATH`, `OPEN_CD_CHECKPOINT`
+- `TILE_SIZE_PX`, `TILE_GSD_METERS`, and `CLOUD_PROB_THRESHOLD`
+
+Keep local databases, Qdrant storage, raw imagery, generated tiles, and model artifacts out of production source control unless they are intentionally published release assets.
+
+## Docker
+
+To start the containerized stack:
+
+```powershell
 cd docker
 docker compose up -d --build
-```
-
-Verify running containers:
-```bash
 docker compose ps
 ```
 
----
+## Repository Layout
 
-## 5. API Reference
-
-| Method | Endpoint | Description | New Parameters (Phase 4) |
-|---|---|---|---|
-| `POST` | `/search/text` | Natural language text query (e.g. *"newly built structures near rivers"*) | `date_start`, `date_end`, `sensor` |
-| `POST` | `/search/image` | Upload satellite tile to search visually similar locations | `date_start`, `date_end` |
-| `POST` | `/search/multimodal` | Combined text query + satellite image query (weighted blend) | Multimodal blending toggle, date filters |
-| `GET` | `/results/{id}` | Full detection record and review history | Enhanced with CCS breakdown |
-| `GET` | `/results/{id}/temporal` | Longitudinal timeline & earliest change date onset | Improved temporal consistency metrics |
-| `GET` | `/results/{id}/evidence` | Export structured JSON audit package | Includes CCS component breakdown |
-| `GET` | `/results/{id}/similar` | Discover sites with comparable stored semantic embeddings | Excludes source tile; returns reusable result-card shape |
-| `POST` | `/review/{id}` | Human analyst confirm/reject decision and audit notes | Enhanced audit trail |
-| `POST` | `/ingest` | Incremental scene drop / upload (triggers only affected grid cells) | Watch folder integration |
-| `GET` | `/tiles/{id}` | Full Sentinel-2 tile metadata record | Unchanged |
-| `GET` | `/health` | System health, vector store state, and loaded models | Enhanced system status reporting |
-
----
-
-## 6. Running Tests & Benchmarks
-
-### Execute Enhanced Test Suite (Phase 4)
-```bash
-python -m pytest -q
-```
-**Phase 4 Enhancements:**
-- **16 comprehensive test cases** (expanded from 7)
-- **Boundary value testing** for CCS categorization at exact thresholds
-- **Edge case handling** for empty queries, invalid parameters, insufficient data
-- **Integration testing** for image search, multimodal search, temporal endpoints
-- **Detailed reporting** with pass/fail statistics and error categorization
-
-*Validates API health, confidence formula, earliest-change dating, sub-pixel registration, text search, multimodal search, analyst review recording, and edge case handling.*
-
-### Run Enhanced Information Retrieval Evaluation
-```bash
-python evaluation/run_retrieval_eval.py
-```
-**Phase 4 Enhancements:**
-- **Comprehensive metrics**: Recall@K, Precision@K, Mean Reciprocal Rank (MRR)
-- **Latency analysis**: Average, median (P50), and P95 latency percentiles
-- **Error handling**: Robust error categorization and success rate tracking
-- **Per-query tracking**: Detailed result analysis and hit rank tracking
-- **JSON report generation**: Automated export of detailed metrics for audit trails
-
-*Measures Recall@5, Precision@5, Mean Reciprocal Rank (MRR), and end-to-end query latency with comprehensive error handling.*
-
-### Run Enhanced Multi-Temporal Change Benchmark
-```bash
-python evaluation/run_change_eval.py
-```
-**Phase 4 Enhancements:**
-- **Multi-location testing**: Validation across urban and river basin scenarios
-- **Registration quality metrics**: Shift analysis and tolerance verification
-- **False-alarm suppression**: Cloud contamination testing and suppression rate calculation
-- **NDWI water detection**: Water expansion/loss analysis accuracy
-- **Comprehensive error handling**: Graceful degradation and detailed error reporting
-- **JSON report generation**: Automated export of change detection metrics
-
-*Evaluates Change Confidence Scores, true positive detection rates, cloud false-alarm suppression, registration quality, and water detection accuracy.*
-
----
-
-## 7. Incremental Ingestion & Watch Folder Service
-
-### Background Watch Folder Service (Phase 4)
-The system now includes an automated watchdog service that monitors the incoming directory for new Sentinel-2 scenes:
-
-```bash
-# Start the background watch service
-python -m backend.ingestion.watch_folder
+```text
+backend/                 FastAPI services and geospatial processing
+backend/ingestion/       Tiling and incremental watch-folder ingestion
+backend/embeddings/      CLIP-RSICD and Clay encoders
+backend/change_detection/Temporal change, NDWI, CCS, and Open-CD logic
+backend/database/        SQLite/PostGIS-compatible metadata and Qdrant access
+frontend/                React + Vite + MapLibre analyst dashboard
+scripts/                 Dataset staging, indexing, and weight management
+tests/                   API and incremental-ingestion integration tests
+evaluation/              Retrieval and change-detection evaluation scripts
+configs/                 Model and weight configuration
 ```
 
-**Features:**
-- **Real-time Monitoring**: Automatically detects new `.tif`, `.tiff`, `.cog`, `.geotiff` files in `data/incoming/`
-- **Smart Processing**: Triggers complete processing pipeline (tiling → masking → encoding → upsert)
-- **Location-Key Optimization**: Re-evaluates change detection ONLY for affected grid cells
-- **No Full Rebuild**: Avoids expensive whole-archive recomputation
-- **Error Handling**: Comprehensive error handling with detailed logging
-- **File Stability**: Ensures files are fully written before processing
+## Operational Notes
 
-### Manual Ingestion Demo
-To demonstrate incremental ingestion without whole-archive recomputation:
-1. Drop any new scene into `data/incoming/` or call `POST /ingest`:
-   ```bash
-   python -c "from backend.ingestion.watch_folder import incremental_service; print(incremental_service.ingest_single_scene('data/raw/AOI_URBAN_2025-11-20.png', '2025-12-01'))"
-   ```
-2. Observe that only the matching `location_key`s are paired and analyzed, leaving the rest of the archive untouched.
-
----
-
-## 8. Dashboard Features (Phase 4 Enhancements)
-
-### Interactive Split-Screen Viewer
-- **Drag-to-Resize Slider**: Interactive comparison between before/after imagery
-- **Multiple View Modes**: Split slider and side-by-side comparison options
-- **Change Mask Overlay**: Toggle for Open-CD construction boundaries and NDWI water boundaries
-- **Synchronized Scrolling**: Maintains alignment during comparison
-- **Date Labels**: Clear identification of acquisition dates
-
-### Advanced Search Capabilities
-- **Multimodal Blending**: Combine text and image queries with configurable weights
-- **Date Range Filtering**: Temporal filtering with start/end date pickers
-- **Advanced Options Panel**: Collapsible UI for advanced search parameters
-- **Real-time Feedback**: Visual indicators for search state and results
-
-### Enhanced Review Panel
-- **CCS Component Breakdown**: Visual display of all Change Confidence Score components
-- **Sensor Metadata**: Platform information and resolution details
-- **Visual Progress Bars**: Color-coded indicators for confidence levels
-- **Audit Trail**: Complete review history with analyst notes
-- **Evidence Export**: JSON package export with full CCS breakdown
-- **Required Review Notes**: Confirm/reject actions require an analyst note and show recorded feedback
-- **Backend Evidence Bundle**: Export retrieves the persisted `/results/{id}/evidence` package rather than rebuilding it in the browser
-
-### Map Visualization
-- **Color-Coded Markers**: Green (≥0.70), Orange (0.40-0.70), Red (<0.40)
-- **Interactive Legend**: Clear confidence score interpretation
-- **Result Filtering**: Toggle for suppressed false alarms
-- **AOI Presets**: Quick selection of urban and river basin areas
-- **Similar-Site Layer**: Cyan square markers for stored-embedding discovery results
-
----
-
-## 9. Offline Operation Verification
-
-1. Stage full-band real data while network access is available:
-   ```bash
-   .venv/Scripts/python scripts/stage_real_dataset.py
-   ```
-   The workflow reads AOI windows directly from remote COG assets and falls back to resumable 8 MB HTTP ranges with retries. It stages 3 AOIs x 2 dates and writes STAC metadata sidecars.
-2. Run the offline staging script before disconnecting from the network:
-   ```bash
-   python scripts/stage_offline.py
-   ```
-3. Disconnect Wi-Fi / Ethernet in the deployment environment.
-4. Run `python -m pytest -q` and execute one text and one image search against local Qdrant/SQLite stores.
-
-The synthetic and thumbnail demo archives were verified and quarantined under `data/quarantine/`. The current local index contains six full-band Earth Search Sentinel-2 L2A scene windows across three AOIs. Their STAC sidecars retain exact acquisition timestamps, cloud cover, collection, provider, grid, and EPSG metadata. The local diagnostic reports 40 semantic points, 40 spectral points, 40 SQLite tiles, 20 location keys, and non-zero embeddings.
-
-The repository does not include trained CLIP-RSICD, Clay, or Open-CD checkpoint artifacts, so offline fallback encoders and the SNUNet architecture fallback remain explicit until those weights are staged. The staging script reports missing artifacts instead of creating empty placeholder files.
-
----
-
-## 10. Phase 4 Implementation Summary
-
-### Completed Components
-✅ **Incremental Watch Folder Service** - Automated scene monitoring with smart location-key processing  
-✅ **Enhanced React Dashboard** - Interactive split-screen viewer, multimodal search, CCS breakdown display  
-✅ **Comprehensive Evaluation Suite** - Advanced metrics, error handling, JSON report generation  
-✅ **Enhanced Test Infrastructure** - 16 tests defined; latest local run: 14 passed, 2 stale review fixtures rejected with 404
-✅ **Updated Dependencies** - watchdog, rasterio, scikit-learn for full functionality  
-
-### Key Technical Achievements
-- **Performance Optimization**: Incremental processing avoids full archive recomputation
-- **User Experience**: Interactive UI with drag-to-resize slider and visual feedback
-- **Robustness**: Comprehensive error handling and graceful degradation
-- **Auditability**: Detailed metrics reporting and JSON evidence export
-- **Test Coverage**: Focused API, temporal, embedding, ingestion, and frontend build verification
-
-### Production Readiness
-- **Modular Architecture**: Clean separation of concerns across all components
-- **Error Handling**: Robust error handling with detailed categorization
-- **Documentation**: Comprehensive API documentation and usage examples
-- **Scalability**: Location-key optimization enables efficient scaling
-- **Maintainability**: Well-structured code with clear interfaces and type hints
-
-**Verification limits:** The repository does not ship trained CLIP-RSICD, Clay, or Open-CD checkpoint files. When those artifacts are absent, local fallback encoders and the SNUNet architecture fallback keep the pipeline runnable, but model-backed production accuracy is not claimed until the weights are staged. The current real-data sample has two dates per AOI, with urban/agriculture sharing MGRS 43PGQ and coastline using MGRS 44PMV.
-
----
-
-## 11. Quick Reference
-
-### File Structure Highlights
-```
-SIH PROJECT/
-├── backend/
-│   ├── ingestion/
-│   │   └── watch_folder.py          # Phase 4: Incremental ingestion service
-│   ├── api/
-│   │   ├── search.py                # Enhanced with date filters
-│   │   ├── results.py               # Enhanced with CCS breakdown
-│   │   └── review.py                # Enhanced audit trail
-│   └── change_detection/
-│       ├── change_confidence.py     # CCS formula implementation
-│       └── earliest_change.py       # Temporal analysis algorithm
-├── frontend/src/components/
-│   ├── SearchBar.jsx               # Phase 4: Multimodal & date filters
-│   ├── BeforeAfterViewer.jsx       # Phase 4: Interactive split-screen
-│   ├── ReviewPanel.jsx             # Phase 4: CCS breakdown display
-│   ├── MapView.jsx                 # Color-coded confidence markers
-│   └── FilterPanel.jsx             # Advanced filtering options
-├── evaluation/
-│   ├── run_retrieval_eval.py       # Phase 4: Enhanced metrics
-│   └── run_change_eval.py          # Phase 4: Comprehensive evaluation
-├── tests/
-│   └── test_api.py                 # Phase 4: 16 comprehensive tests
-└── requirements.txt                # Phase 4: Updated dependencies
-```
-
-### Environment Variables
-```bash
-# API Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
-
-# Database Configuration
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=sih_eo_db
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgrespassword
-
-# Vector Database
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-USE_LOCAL_QDRANT_STORAGE=true
-
-# Model Paths
-CLIP_RSICD_MODEL=flax-community/clip-rsicd-v2
-CLAY_WEIGHTS_PATH=data/weights/clay_v1_5.pt
-OPEN_CD_CHECKPOINT=data/weights/open_cd_snunet.pt
-```
-
----
-
-**Status**: ✅ **Full-band real-data integration complete** - Synthetic and thumbnail inputs were quarantined, six Earth Search Sentinel-2 L2A full-band windows across three AOIs were staged and indexed, CRS/bounds and STAC provenance persist in SQLite, and both Qdrant collections contain 40 real-scene points. NDWI and s2cloudless operate on real reflectance bands; trained model weights remain a separate deployment prerequisite.
+- Missing pretrained model files are handled explicitly by deterministic fallbacks; install approved weights before making accuracy claims.
+- The local Qdrant client locks its storage directory. Use `QDRANT_STORAGE_DIR` for parallel tests or separate application processes.
+- The SQLite fallback is for development and tests. Use PostgreSQL/PostGIS for concurrent production workloads.
+- Review decisions are audit records and should be retained according to the deployment’s data-governance policy.

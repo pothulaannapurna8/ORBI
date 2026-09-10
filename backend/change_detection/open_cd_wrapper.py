@@ -190,6 +190,15 @@ class OpenCDWrapper:
                 logger.warning(f"Unknown model type: {self.model_type}, defaulting to SNUNet")
                 self.model = SNUNetBaseline(in_channels=3, num_classes=1).to(self.device).eval()
             
+            # Never run randomly initialized weights as if they were a trained detector.
+            if not os.path.exists(self.checkpoint_path) or os.path.getsize(self.checkpoint_path) == 0:
+                self.model = None
+                logger.warning(
+                    "Open-CD checkpoint unavailable at %s; using Otsu fallback for inference",
+                    self.checkpoint_path
+                )
+                return
+
             # Load checkpoint if available
             if os.path.exists(self.checkpoint_path):
                 try:

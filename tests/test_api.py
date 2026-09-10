@@ -4,6 +4,8 @@ Tests API endpoints, embedding spaces, change confidence scoring,
 temporal algorithms, review logging, and integration workflows.
 """
 import sys
+import sqlite3
+import uuid
 import numpy as np
 import io
 from pathlib import Path
@@ -18,8 +20,71 @@ from backend.change_detection.change_confidence import compute_change_confidence
 from backend.change_detection.earliest_change import estimate_earliest_change_date
 from backend.change_detection.ndwi_water import ndwi_detector
 from backend.quality.arosics_register import arosics_aligner
+from backend.config import SQLITE_DB_PATH
+from backend.database.db_manager import db
+from backend.database.qdrant_client import qdrant_store
 
 client = TestClient(app)
+
+
+def get_review_fixture_change_id():
+    """Return a change tied to an indexed tile and verified Qdrant point."""
+    conn = sqlite3.connect(str(SQLITE_DB_PATH))
+    row = conn.execute(
+        """
+        SELECT change_id, before_tile_id, after_tile_id
+        FROM change_result
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+
+    if row:
+        change_id, before_tile_id, after_tile_id = row
+        if qdrant_store.get_semantic_tile(after_tile_id):
+            return change_id
+
+    indexed_points, _ = qdrant_store.client.scroll(
+        collection_name=qdrant_store.semantic_collection,
+        limit=20,
+        with_payload=True,
+    )
+    tiles = []
+    for point in indexed_points:
+        tile_id = str(point.id)
+        tile = db.get_tile(tile_id)
+        if tile:
+            tiles.append((tile_id, tile["location_key"]))
+        if len(tiles) == 2:
+            break
+
+    assert len(tiles) == 2, "Test fixture requires two indexed tile observations"
+    assert qdrant_store.get_semantic_tile(tiles[0][0])
+    assert qdrant_store.get_semantic_tile(tiles[1][0])
+
+    return db.insert_change_result({
+        "change_id": str(uuid.uuid4()),
+        "location_key": tiles[0][1],
+        "before_tile_id": tiles[0][0],
+        "after_tile_id": tiles[1][0],
+        "earliest_change_date": "2025-01-01",
+        "change_type": "test_fixture",
+        "change_score": 0.5,
+        "confidence": 0.5,
+        "evidence_paths": {},
+        "registration_shift_px": 0.0,
+        "cloud_mask_quality": 1.0,
+        "registration_quality": 1.0,
+        "ccs_breakdown": {
+            "change_evidence": 0.5,
+            "cloud_score": 0.0,
+            "registration_quality": 1.0,
+            "temporal_consistency": 1.0,
+        },
+        "model_version": "test-fixture",
+        "processing_version": "test",
+    })
 
 def test_health():
     """Test health check endpoint."""
@@ -187,7 +252,7 @@ def test_temporal_endpoint():
 
 def test_review_workflow():
     """Test analyst review workflow."""
-    change_id = "test_audit_unit_001"
+    change_id = get_review_fixture_change_id()
     sub_resp = client.post(f"/review/{change_id}", json={
         "decision": "confirmed",
         "analyst_note": "Automated unit test review"
@@ -195,13 +260,13 @@ def test_review_workflow():
     assert sub_resp.status_code == 200
     assert sub_resp.json()["status"] == "recorded"
 
-    hist_resp = client.get(f"/review/{change_id}/history")
+    hist_resp = client.get(f"/review/{change_id}")
     assert hist_resp.status_code == 200
-    assert hist_resp.json()["review_count"] >= 1
+    assert hist_resp.json()["total_reviews"] >= 1
 
 def test_review_rejection():
     """Test review rejection workflow."""
-    change_id = "test_audit_unit_002"
+    change_id = get_review_fixture_change_id()
     sub_resp = client.post(f"/review/{change_id}", json={
         "decision": "rejected",
         "analyst_note": "False alarm - confirmed via manual inspection"

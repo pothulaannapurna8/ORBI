@@ -24,7 +24,11 @@ data/weights/*
 data/metadata.db
 data/qdrant_storage/*
 !data/qdrant_storage/.gitkeep
+data/qdrant_*/
 data/quarantine/*
+
+# Browser automation artifacts
+frontend/test-results/
 
 # Tool and OS files
 .vscode/

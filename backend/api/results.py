@@ -9,6 +9,9 @@ Endpoints:
 - GET /results/location/{location_key}: Get all changes for a location ordered by date
 """
 import logging
+import os
+import numpy as np
+from PIL import Image
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -21,6 +24,7 @@ from backend.change_detection.earliest_change import (
     estimate_earliest_change_date,
     compute_temporal_consistency_score
 )
+from backend.change_detection.open_cd_wrapper import open_cd_detector
 
 logger = logging.getLogger(__name__)
 
@@ -154,14 +158,27 @@ async def get_result_temporal_timeline(
         
         # Build timeline with quality metrics
         timeline = []
+        reference_image = None
+        if tiles:
+            reference_path = tiles[0].get("rgb_filepath", "")
+            if reference_path and os.path.exists(reference_path):
+                reference_image = np.array(Image.open(reference_path).convert("RGB"))
         for tile in tiles:
+            tile_image = None
+            tile_path = tile.get("rgb_filepath", "")
+            if tile_path and os.path.exists(tile_path):
+                tile_image = np.array(Image.open(tile_path).convert("RGB"))
+            if reference_image is not None and tile_image is not None:
+                _, observed_change_score = open_cd_detector.detect_change(reference_image, tile_image)
+            else:
+                observed_change_score = 0.0
             timeline.append({
                 "tile_id": tile.get("tile_id"),
                 "date": tile.get("acquisition_datetime", "")[:10],  # ISO date YYYY-MM-DD
                 "cloud_cover": float(tile.get("cloud_cover", 0.0)),
                 "quality_score": float(tile.get("quality_score", 1.0)),
                 "rgb_filepath": tile.get("rgb_filepath", ""),
-                "change_score": float(tile.get("change_score", 0.0)) if "change_score" in tile else None
+                "change_score": float(observed_change_score)
             })
         
         # Estimate earliest change date with persistence check

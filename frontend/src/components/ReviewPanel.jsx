@@ -26,7 +26,8 @@ export default function ReviewPanel({ result, onReviewSubmit, onFindSimilar, sim
       return;
     }
     try {
-      const res = await apiFetch(`/review/${result.tile_id}`, {
+      const reviewId = result.change_id || result.tile_id;
+      const res = await apiFetch(`/review/${reviewId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -37,7 +38,7 @@ export default function ReviewPanel({ result, onReviewSubmit, onFindSimilar, sim
       if (res.ok) {
         setLastDecision(decision);
         setNote('');
-        if (onReviewSubmit) onReviewSubmit(result.tile_id, decision);
+        if (onReviewSubmit) onReviewSubmit(reviewId, decision);
       } else {
         setReviewError(`Review could not be recorded (${res.status}).`);
       }

@@ -12,7 +12,7 @@ RAW_DIR = DATA_DIR / "raw"
 TILES_DIR = DATA_DIR / "tiles"
 WEIGHTS_DIR = DATA_DIR / "weights"
 INCOMING_DIR = DATA_DIR / "incoming"
-QDRANT_STORAGE_DIR = DATA_DIR / "qdrant_storage"
+QDRANT_STORAGE_DIR = Path(os.getenv("QDRANT_STORAGE_DIR", str(DATA_DIR / "qdrant_storage")))
 
 # Create directories if not present
 for d in [DATA_DIR, RAW_DIR, TILES_DIR, WEIGHTS_DIR, INCOMING_DIR, QDRANT_STORAGE_DIR]:
@@ -37,7 +37,8 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 QDRANT_SEMANTIC_COLLECTION = os.getenv("QDRANT_SEMANTIC_COLLECTION", "semantic_tiles")
 QDRANT_SPECTRAL_COLLECTION = os.getenv("QDRANT_SPECTRAL_COLLECTION", "spectral_tiles")
-QDRANT_LOCAL_PATH = QDRANT_STORAGE_DIR
+QDRANT_LOCAL_PATH = Path(os.getenv("QDRANT_LOCAL_PATH", str(QDRANT_STORAGE_DIR)))
+QDRANT_LOCAL_PATH.mkdir(parents=True, exist_ok=True)
 
 # Model settings
 CLIP_RSICD_MODEL = os.getenv("CLIP_RSICD_MODEL", "flax-community/clip-rsicd-v2")

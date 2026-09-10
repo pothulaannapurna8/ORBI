@@ -27,6 +27,13 @@ import numpy as np
 from PIL import Image
 
 try:
+    import rasterio
+    from rasterio.warp import transform as transform_coordinates
+except ImportError:
+    rasterio = None
+    transform_coordinates = None
+
+try:
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
     HAS_WATCHDOG = True
@@ -335,79 +342,126 @@ class SceneEventHandler(FileSystemEventHandler):
     def __init__(self, ingest_service: IncrementalIngestionService):
         self.ingest_service = ingest_service
         self.processing = set()
+        self.processing_lock = threading.Lock()
+        self.results: Dict[str, Dict[str, Any]] = {}
+        self.errors: Dict[str, str] = {}
+
+    def _schedule(self, filepath: Path):
+        """Schedule stabilization and ingestion outside the watchdog event thread."""
+        if filepath.suffix.lower() not in {'.tif', '.tiff', '.cog', '.geotiff'}:
+            return
+
+        filepath_key = str(filepath.resolve())
+        with self.processing_lock:
+            if filepath_key in self.processing:
+                return
+            self.processing.add(filepath_key)
+
+        logger.info("[Watch] Detected new scene: %s", filepath.name)
+        thread = threading.Thread(
+            target=self._process_scene,
+            args=(filepath, filepath_key),
+            name=f"ingest-{filepath.name}",
+            daemon=True,
+        )
+        thread.start()
 
     def on_created(self, event):
         """Handle file creation events."""
         if event.is_directory:
             return
-        
-        filepath = Path(event.src_path)
-        
-        # Check file extension
-        if filepath.suffix.lower() not in ['.tif', '.tiff', '.cog', '.geotiff']:
-            return
-        
-        # Avoid processing the same file multiple times
-        if str(filepath) in self.processing:
-            return
-        
-        logger.info(f"[Watch] Detected new scene: {filepath.name}")
-        
-        # Add small delay to ensure file is complete
-        time.sleep(2)
-        
-        # Check if file is still being written
-        if not self._is_file_stable(filepath):
-            logger.info(f"[Watch] File still being written, will retry: {filepath.name}")
-            return
-        
-        # Process in background thread to avoid blocking watcher
-        thread = threading.Thread(
-            target=self._process_scene,
-            args=(filepath,),
-            daemon=True
-        )
-        thread.start()
+        self._schedule(Path(event.src_path))
+
+    def on_moved(self, event):
+        """Handle atomic temp-file-to-final-file moves used by upload tools."""
+        if not event.is_directory:
+            self._schedule(Path(event.dest_path))
+
+    def _wait_for_stable_file(
+        self,
+        filepath: Path,
+        timeout: float = 120.0,
+        check_interval: float = 0.5,
+        stable_checks: int = 3,
+    ) -> bool:
+        """Wait until a file exists, can be opened, and has stable size and mtime."""
+        deadline = time.monotonic() + timeout
+        previous_signature = None
+        stable_count = 0
+
+        while time.monotonic() < deadline:
+            try:
+                stat = filepath.stat()
+                if stat.st_size <= 0:
+                    stable_count = 0
+                else:
+                    with filepath.open('rb') as stream:
+                        stream.read(1)
+                    signature = (stat.st_size, stat.st_mtime_ns)
+                    if signature == previous_signature:
+                        stable_count += 1
+                    else:
+                        stable_count = 1
+                    previous_signature = signature
+                    if stable_count >= stable_checks:
+                        return True
+            except (FileNotFoundError, PermissionError, OSError) as exc:
+                logger.debug("[Watch] File is not ready: %s (%s)", filepath, exc)
+                stable_count = 0
+
+            time.sleep(check_interval)
+
+        return False
 
     def _is_file_stable(self, filepath: Path, check_interval: float = 0.5) -> bool:
-        """Check if file size is stable (not being written)."""
+        """Backward-compatible one-second stability check."""
         try:
-            size1 = filepath.stat().st_size
+            signature1 = (filepath.stat().st_size, filepath.stat().st_mtime_ns)
             time.sleep(check_interval)
-            size2 = filepath.stat().st_size
-            return size1 == size2
-        except Exception:
+            signature2 = (filepath.stat().st_size, filepath.stat().st_mtime_ns)
+            return signature1 == signature2
+        except (FileNotFoundError, PermissionError, OSError):
             return False
 
-    def _process_scene(self, filepath: Path):
+    def _process_scene(self, filepath: Path, filepath_key: Optional[str] = None):
         """Process scene in background thread."""
-        self.processing.add(str(filepath))
-        
+        filepath_key = filepath_key or str(filepath.resolve())
         try:
+            if not self._wait_for_stable_file(filepath):
+                raise TimeoutError(f"file did not become stable within 120 seconds: {filepath}")
+
             # Extract acquisition date from filename or use current date
             acquisition_date = self._extract_date_from_filename(filepath.name)
+            scene_center = self._extract_scene_center(filepath)
+            center_lat, center_lon = scene_center or (12.9716, 77.5946)
             
             logger.info(f"[Watch] Ingesting: {filepath.name} (date: {acquisition_date})")
             
             result = self.ingest_service.ingest_single_scene(
                 filepath=str(filepath),
                 acquisition_date=acquisition_date,
-                source_name="Sentinel-2_Incoming"
+                source_name="Sentinel-2_Incoming",
+                center_lat=center_lat,
+                center_lon=center_lon,
             )
             
             if result["status"] == "success":
+                self.results[filepath_key] = result
                 logger.info(
                     f"[Watch] Ingest successful: {result['new_tiles_count']} tiles, "
                     f"{result['updated_change_analyses']} changes"
                 )
             else:
+                self.errors[filepath_key] = "; ".join(result.get('errors', []))
                 logger.error(f"[Watch] Ingest failed: {result.get('errors', [])}")
         
         except Exception as e:
+            self.errors[filepath_key] = str(e)
             logger.error(f"[Watch] Error processing {filepath.name}: {e}", exc_info=True)
         
         finally:
-            self.processing.discard(str(filepath))
+            with self.processing_lock:
+                self.processing.discard(filepath_key)
 
     @staticmethod
     def _extract_date_from_filename(filename: str) -> str:
@@ -421,6 +475,31 @@ class SceneEventHandler(FileSystemEventHandler):
             date_str = match.group(1)
             return f"{date_str[0:4]}-{date_str[4:6]}-{date_str[6:8]}"
         return datetime.now().strftime("%Y-%m-%d")
+
+    @staticmethod
+    def _extract_scene_center(filepath: Path):
+        """Return a GeoTIFF center in EPSG:4326 when geospatial metadata is available."""
+        if rasterio is None:
+            return None
+
+        try:
+            with rasterio.open(filepath) as dataset:
+                center_x = (dataset.bounds.left + dataset.bounds.right) / 2.0
+                center_y = (dataset.bounds.bottom + dataset.bounds.top) / 2.0
+                if dataset.crs and dataset.crs.to_string() != "EPSG:4326":
+                    if transform_coordinates is None:
+                        return None
+                    transformed_x, transformed_y = transform_coordinates(
+                        dataset.crs,
+                        "EPSG:4326",
+                        [center_x],
+                        [center_y],
+                    )
+                    return float(transformed_y[0]), float(transformed_x[0])
+                return float(center_y), float(center_x)
+        except (OSError, ValueError, rasterio.errors.RasterioIOError) as exc:
+            logger.warning("[Watch] Could not read scene center from %s: %s", filepath, exc)
+            return None
 
     @staticmethod
     def _archive_file(filepath: Path):

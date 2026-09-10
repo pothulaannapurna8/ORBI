@@ -114,7 +114,8 @@ export default function BeforeAfterViewer({ result }) {
 
       {/* Interactive Split-Screen Slider View */}
       {viewMode === 'split' && (
-        <div 
+        <div
+          data-testid="before-after-viewer"
           ref={containerRef}
           style={{
             position: 'relative',
@@ -148,6 +149,7 @@ export default function BeforeAfterViewer({ result }) {
           {/* After Image (Clipped with slider) */}
           {afterUrl && (
             <div
+              data-testid="after-image-clip"
               style={{
                 position: 'absolute',
                 top: 0,
