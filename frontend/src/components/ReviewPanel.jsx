@@ -16,6 +16,13 @@ export default function ReviewPanel({ result, onReviewSubmit, onFindSimilar, sim
     registration_quality: 0.9,
     temporal_consistency: 0.8
   };
+  const landcover = result.landcover_breakdown;
+
+  const landcoverRows = [
+    ['Buildings', 'builtup'],
+    ['Water', 'water'],
+    ['Vegetation', 'vegetation']
+  ];
 
   const handleReview = async (decision) => {
     setSubmitting(true);
@@ -95,7 +102,7 @@ export default function ReviewPanel({ result, onReviewSubmit, onFindSimilar, sim
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ color: '#cbd5e1' }}>Change Evidence (40%)</span>
             <span style={{ color: getComponentColor(ccsBreakdown.change_evidence), fontWeight: 600 }}>
-              {ccsBreakdown.change_evidence.toFixed(3)}
+              {ccsBreakdown.change_evidence.toFixed(4)}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -144,6 +151,33 @@ export default function ReviewPanel({ result, onReviewSubmit, onFindSimilar, sim
           </div>
         </div>
       </div>
+
+      {/* Sensor Metadata */}
+      {landcover && (
+        <div style={{
+          background: '#0f172a',
+          borderRadius: '6px',
+          padding: '10px',
+          border: '1px solid #334155',
+          fontSize: '11px'
+        }}>
+          <div style={{ fontWeight: 600, color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase' }}>
+            Land-Cover Breakdown
+          </div>
+          {landcoverRows.map(([label, key]) => {
+            const change = landcover[`${key}_pct_change`] || 0;
+            const color = key === 'builtup' ? (change > 0 ? '#fbbf24' : '#cbd5e1') : (change > 0 ? '#4ade80' : '#f87171');
+            return (
+              <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '8px', marginBottom: '5px' }}>
+                <span style={{ color: '#cbd5e1' }}>{label}</span>
+                <span>{landcover[`${key}_pct_before`]?.toFixed(2)}%</span>
+                <span>→ {landcover[`${key}_pct_after`]?.toFixed(2)}%</span>
+                <span style={{ color, fontWeight: 600 }}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Sensor Metadata */}
       <div style={{

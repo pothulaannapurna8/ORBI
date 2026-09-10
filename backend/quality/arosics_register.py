@@ -119,10 +119,11 @@ class AROSICSAligner:
             shift_y, shift_x = float(shift_y_coarse), float(shift_x_coarse)
             peak_value = peak_value_coarse
         
-        # Convert to signed shift (center at image center)
+        # Convert wrapped FFT coordinates to signed pixel offsets.
+        # A peak at h-1/w-1 represents -1, not h/2-1.
         h, w = ref.shape
-        shift_y = shift_y - h // 2 if shift_y > h // 2 else shift_y
-        shift_x = shift_x - w // 2 if shift_x > w // 2 else shift_x
+        shift_y = shift_y - h if shift_y > h // 2 else shift_y
+        shift_x = shift_x - w if shift_x > w // 2 else shift_x
         
         # Normalize peak coherence to [0, 1]
         peak_coherence = float(peak_value)
@@ -219,9 +220,13 @@ class AROSICSAligner:
             ref_single = ref_single.astype(np.float32)
             tgt_single = tgt_single.astype(np.float32)
             
-            if np.max(ref_single) > 1.0:
+            if np.max(ref_single) > 255.0:
+                ref_single = ref_single / 10000.0
+            elif np.max(ref_single) > 1.0:
                 ref_single = ref_single / 255.0
-            if np.max(tgt_single) > 1.0:
+            if np.max(tgt_single) > 255.0:
+                tgt_single = tgt_single / 10000.0
+            elif np.max(tgt_single) > 1.0:
                 tgt_single = tgt_single / 255.0
             
             # Compute phase correlation

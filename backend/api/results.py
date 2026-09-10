@@ -25,6 +25,7 @@ from backend.change_detection.earliest_change import (
     compute_temporal_consistency_score
 )
 from backend.change_detection.open_cd_wrapper import open_cd_detector
+from backend.change_detection.landcover_breakdown import compute_landcover_breakdown
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,23 @@ async def get_result_detail(change_id: str) -> Dict[str, Any]:
         # Fetch associated reviews
         reviews = db.get_reviews_for_change(change_id)
         res["reviews"] = reviews if reviews else []
+
+        before_tile = db.get_tile(res.get("before_tile_id", ""))
+        after_tile = db.get_tile(res.get("after_tile_id", ""))
+        if before_tile and after_tile:
+            mask = None
+            mask_path = res.get("evidence_paths", {}).get("change_mask_png", "")
+            if mask_path and os.path.exists(mask_path):
+                mask = np.array(Image.open(mask_path).convert("L"))
+            try:
+                res["landcover_breakdown"] = compute_landcover_breakdown(
+                    before_tile.get("filepath", ""),
+                    after_tile.get("filepath", ""),
+                    mask,
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                logger.warning("Land-cover breakdown unavailable for %s: %s", change_id, exc)
+                res["landcover_breakdown"] = {}
         
         logger.debug(f"Retrieved change result: {change_id}")
         return res

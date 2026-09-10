@@ -36,9 +36,16 @@ export default function ResultCard({
             style={{ width: '42px', height: '42px', objectFit: 'cover', borderRadius: '4px', marginRight: '8px' }}
           />
         )}
-        <span style={{ fontWeight: 600, fontSize: '13px', color: '#f8fafc' }}>
-          {result.location_key}
-        </span>
+        <div>
+          <span style={{ fontWeight: 600, fontSize: '13px', color: '#f8fafc' }}>
+            {result.location_key}
+          </span>
+          {result.coordinates && (
+            <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+              {result.coordinates[1]?.toFixed(4)}°N, {result.coordinates[0]?.toFixed(4)}°E
+            </div>
+          )}
+        </div>
         <span
           className={badgeClass}
           style={{

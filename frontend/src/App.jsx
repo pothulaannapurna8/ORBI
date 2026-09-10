@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SearchBar from './components/SearchBar.jsx';
 import FilterPanel from './components/FilterPanel.jsx';
-import MapView from './components/MapView.jsx';
 import ResultCard from './components/ResultCard.jsx';
 import BeforeAfterViewer from './components/BeforeAfterViewer.jsx';
 import ReviewPanel from './components/ReviewPanel.jsx';
@@ -14,7 +13,7 @@ export default function App() {
   const [aoi, setAoi] = useState('ALL');
   const [sensor, setSensor] = useState('Sentinel-2 L2A');
   const [topK, setTopK] = useState(20);
-  const [showSuppressed, setShowSuppressed] = useState(false);
+  const [showSuppressed, setShowSuppressed] = useState(true);
   const [useMultimodal, setUseMultimodal] = useState(false);
   const [dateRange, setDateRange] = useState({ start: '2024-01-01', end: '2026-12-31' });
 
@@ -231,19 +230,11 @@ export default function App() {
           </div>
         </div>
 
-        {/* Center: Interactive MapLibre GL Map */}
-        <div style={{ flex: 1, position: 'relative', height: '100%' }}>
-          <MapView
-            results={filteredResults}
-            selectedResult={selectedResult}
-            onSelectResult={setSelectedResult}
-          />
-        </div>
-
         {/* Right: Detailed Inspection & Evidence Panel */}
         {selectedResult && (
           <div style={{
-            width: '440px',
+            flex: 1,
+            minWidth: 0,
             background: '#1e293b',
             borderLeft: '1px solid #334155',
             display: 'flex',

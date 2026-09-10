@@ -129,6 +129,29 @@ npm run dev -- --host 0.0.0.0
 
 Vite uses port 3000 by default and selects the next available port when 3000 is occupied.
 
+### Start frontend and backend with the command loop
+
+From the repository root, run:
+
+```powershell
+.\start.ps1
+```
+
+At the `start>` prompt, use:
+
+- `backend` to start FastAPI.
+- `frontend` to start Vite.
+- `both` to start both services.
+- `status` to show running service processes.
+- `stop` to stop both services and keep the prompt open.
+- `exit` to stop any services started by the script and close the loop.
+
+PowerShell may require this one-time session command if script execution is restricted:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
 ### Start the watch-folder service
 
 The API can start the background watcher through the application lifecycle. For a standalone watcher:
@@ -229,6 +252,21 @@ Keep local databases, Qdrant storage, raw imagery, generated tiles, and model ar
 ## Docker
 
 To start the containerized stack:
+
+## Render deployment
+
+The repository includes `render.yaml` for a Render Blueprint with four services:
+
+- React/Vite frontend as a static site.
+- FastAPI backend from `docker/Dockerfile.backend`.
+- PostgreSQL database.
+- Private Qdrant service with a persistent disk.
+
+Deploy it from the Render dashboard with **New + > Blueprint**, select this GitHub repository, and choose `render.yaml`. Keep all services in the same region. Render will provide the database variables and backend URL to the other services automatically.
+
+The first deployment may take several minutes because the backend installs PyTorch, rasterio, and the other model dependencies. After deployment, open the frontend URL and check the backend health endpoint at `/health`.
+
+Render deployments do not include local files ignored by Git. Upload or ingest production imagery after deployment, and provide model weights through the backend service's persistent storage or an approved artifact source.
 
 ```powershell
 cd docker

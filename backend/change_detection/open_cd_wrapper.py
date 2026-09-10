@@ -222,7 +222,10 @@ class OpenCDWrapper:
     def _normalize_image(self, img: np.ndarray) -> np.ndarray:
         """Normalize image to [0.0, 1.0] range."""
         img = img.astype(np.float32)
-        if np.max(img) > 1.0:
+        max_value = float(np.max(img)) if img.size else 0.0
+        if max_value > 255.0:
+            img = img / 10000.0
+        elif max_value > 1.0:
             img = img / 255.0
         return np.clip(img, 0.0, 1.0)
 

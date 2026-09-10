@@ -20,9 +20,15 @@ from backend.change_detection.open_cd_wrapper import open_cd_detector
 from backend.change_detection.ndwi_water import ndwi_detector
 from backend.change_detection.change_confidence import compute_change_confidence_score
 from backend.change_detection.earliest_change import estimate_earliest_change_date
+from backend.change_detection.landcover_breakdown import compute_landcover_breakdown
 from backend.config import RANKING_WEIGHT_SEMANTIC, RANKING_WEIGHT_CHANGE
 
 router = APIRouter(prefix="/search", tags=["Search"])
+
+
+def display_similarity(raw_similarity: float) -> float:
+    """Map cosine similarity from [-1, 1] to an auditable [0, 1] display score."""
+    return round((max(-1.0, min(1.0, float(raw_similarity))) + 1.0) / 2.0, 4)
 logger = logging.getLogger(__name__)
 
 class TextSearchRequest(BaseModel):
@@ -93,7 +99,8 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
             continue
         seen_locations.add(loc_key)
 
-        similarity = float(cand.get("score", 0.0))
+        raw_similarity = float(cand.get("score", 0.0))
+        similarity = display_similarity(raw_similarity)
         location_changes = db.get_changes_by_location(loc_key, limit=1)
         latest_change = location_changes[0] if location_changes else {}
         # Fetch all available dates for this location
@@ -104,7 +111,8 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
                 "tile_id": payload.get("tile_id"),
                 "change_id": latest_change.get("change_id"),
                 "location_key": loc_key,
-                "similarity": round(similarity, 4),
+                "similarity": similarity,
+                "raw_similarity": round(raw_similarity, 4),
                 "change_confidence": 0.0,
                 "confidence_level": "suppressed",
                 "change_type": "single_observation",
@@ -137,6 +145,12 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
 
             # 2. Open-CD Binary Change Detection
             change_mask, raw_evidence = open_cd_detector.detect_change(im_before, im_reg)
+
+            landcover_breakdown = compute_landcover_breakdown(
+                ref_tile.get("filepath", ""),
+                latest_tile.get("filepath", ""),
+                change_mask,
+            )
 
             # 3. Water-Extent NDWI Analysis
             # Green (channel 1), NIR (approximated from red-channel contrast when in RGB)
@@ -190,6 +204,7 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
                 "change_id": latest_change.get("change_id"),
                 "location_key": loc_key,
                 "similarity": round(similarity, 4),
+                "raw_similarity": round(raw_similarity, 4),
                 "change_confidence": round(ccs, 4),
                 "confidence_level": conf_level,
                 "change_type": primary_change,
@@ -213,6 +228,7 @@ def run_temporal_analysis_for_candidates(candidates: List[Dict[str, Any]]) -> Li
                     "registration_quality": round(reg_quality, 4),
                     "temporal_consistency": round(float(temp_consistency), 4)
                 },
+                "landcover_breakdown": landcover_breakdown,
                 "reranked_score": round(final_rank_score, 4)
             })
 

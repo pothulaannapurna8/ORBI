@@ -4,6 +4,7 @@ Generates 512-dimensional L2-normalized embeddings for cross-modal retrieval.
 Complies with Apache-2.0 license.
 """
 import os
+import hashlib
 import logging
 import torch
 import torch.nn as nn
@@ -81,7 +82,9 @@ class ClipRsicdEncoder:
         vec = np.zeros(256, dtype=np.float32)
         tokens = text.lower().replace(",", " ").replace(".", " ").split()
         for tok in tokens:
-            h = hash(tok) % 256
+            # Python's built-in hash is randomized per process, which makes
+            # offline query vectors incompatible with vectors indexed earlier.
+            h = int.from_bytes(hashlib.sha256(tok.encode("utf-8")).digest()[:4], "big") % 256
             vec[h] += 1.0
         norm = np.linalg.norm(vec)
         if norm > 0:
