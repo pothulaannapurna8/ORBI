@@ -1,3 +1,12 @@
+---
+title: PS26227 Earth Observation Intelligence API
+emoji: satellite
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
+
 # PS26227 Earth Observation Change Intelligence
 
 PS26227 is a cross-modal Earth Observation system for searching Sentinel-2 L2A imagery and detecting persistent land-use change. It combines natural-language and image retrieval with multi-temporal registration, change detection, water analysis, false-alarm suppression, and analyst review.
@@ -255,18 +264,22 @@ To start the containerized stack:
 
 ## Free demo deployment
 
-The default `render.yaml` is a free Render Blueprint for the FastAPI backend. It uses temporary local SQLite and Qdrant storage, so data can be lost when the free service restarts or redeploys.
+Use Hugging Face Spaces for the FastAPI backend and Netlify for the React frontend.
 
-Deploy the backend from Render with **New + > Blueprint**, select this repository, choose branch `main`, and use `render.yaml`. After deployment, copy the backend URL, for example `https://ps26227-backend-demo.onrender.com`.
+### Hugging Face backend
 
-Deploy the frontend separately on Netlify:
+1. Create a new Hugging Face Space with **Docker** as the SDK.
+2. Import or upload this repository's root files, including `Dockerfile` and `README.md`.
+3. The Space starts FastAPI on port `7860`; copy its public URL.
 
-1. Choose **Add new site > Import an existing project** and select `pothulaannapurna8/ORBI`.
-2. Netlify reads `netlify.toml`; confirm the publish directory is `frontend/dist`.
-3. Add environment variable `VITE_API_URL` with the Render backend URL.
+### Netlify frontend
+
+1. Import `pothulaannapurna8/ORBI` as a new Netlify site.
+2. Netlify reads `netlify.toml` and builds `frontend/dist`.
+3. Add `VITE_API_URL` with the Hugging Face Space URL.
 4. Deploy the site and open its Netlify URL.
 
-This free split setup is for demos and testing. The Render backend may sleep when idle, and local database/vector data is not persistent.
+This free split setup is for demos and testing. Hugging Face free Spaces can sleep when idle, and local SQLite/Qdrant data is temporary.
 
 ```powershell
 cd docker
