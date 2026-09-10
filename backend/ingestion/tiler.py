@@ -67,7 +67,7 @@ class SceneTiler:
                     with rasterio.open(scene_filepath) as dataset:
                         raw_bands = dataset.read().astype(np.float32)
                         if np.max(raw_bands) > 1.0:
-                            raw_bands /= 255.0
+                            raw_bands /= 10000.0 if raw_bands.dtype == np.uint16 else 255.0
                         scene_crs = str(dataset.crs) if dataset.crs else None
                         scene_bounds = list(dataset.bounds)
                         scene_transform = dataset.transform

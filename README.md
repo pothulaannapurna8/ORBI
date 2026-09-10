@@ -5,11 +5,11 @@
 [![Qdrant](https://img.shields.io/badge/Vector_DB-Qdrant-red.svg)](https://qdrant.tech/)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-teal.svg)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/Frontend-React_+_MapLibre_GL-blue.svg)](https://maplibre.org/)
-[![Phase 4 Complete](https://img.shields.io/badge/Status-Phase_4_Complete-success.svg)](https://github.com/)
+[![Real Multispectral Data](https://img.shields.io/badge/Status-Real_Multispectral_Data-success.svg)](https://github.com/)
 
 A full, production-oriented implementation of **Problem Statement PS26227**: Cross-modal natural-language and satellite image retrieval combined with automated multi-temporal change detection, sub-pixel registration, and false-alarm suppression for Earth Observation (Sentinel-2 L2A).
 
-**🎉 Phase 4 Complete**: Final phase implementation featuring incremental watch folder service, advanced React dashboard with interactive split-screen viewer, comprehensive evaluation suite, and enhanced testing infrastructure.
+**Real-data integration complete**: The active index uses six full-band Sentinel-2 L2A scene windows across three real AOIs, with STAC provenance, native UTM CRS, uint16 reflectance bands, and incremental ingestion.
 
 ---
 
@@ -112,11 +112,26 @@ A full, production-oriented implementation of **Problem Statement PS26227**: Cro
 - **Integration Testing**: Image search, multimodal search, temporal endpoints
 - **Detailed Reporting**: Pass/fail statistics with error categorization and success rates
 
-**Latest local verification:** 14 tests passed. Two legacy review tests submit nonexistent change IDs and correctly receive `404`; they require fixture updates before the suite can report 16/16.
+**Latest local verification:** Full-band diagnostic passed with 40 SQLite tiles, 40 semantic Qdrant points, 40 spectral Qdrant points, 20 location keys, finite non-zero embeddings, and no diagnostic warnings. Real-band checks produced NDWI range `-0.8604..0.7831` with standard deviation `0.1279`; s2cloudless produced cloud fraction `0.0000131` and 36 masked pixels on one scene.
 
 ---
 
 ## 2. Core Technology Stack & License Verification
+
+### Active Real Dataset
+
+The active dataset contains six full-band multispectral windows downloaded from the Earth Search STAC API (`sentinel-2-l2a`). These are not thumbnails. Each staged GeoTIFF contains 12 real uint16 reflectance bands: B02, B03, B04, B05, B06, B07, B08, B8A, B09, B11, B12, plus B01. Earth Search does not expose B10 in this L2A COG collection; the omission is recorded in every metadata sidecar. Native scene CRS is retained: EPSG:32643 for MGRS 43PGQ and EPSG:32644 for MGRS 44PMV.
+
+| AOI | STAC scene | Acquisition date | Cloud cover | CRS |
+|---|---|---:|---:|---|
+| urban_edge | `S2B_43PGQ_20250206_0_L2A` | 2025-02-06 | 0.0098% | EPSG:32643 |
+| urban_edge | `S2C_43PGQ_20251208_0_L2A` | 2025-12-08 | 0.0057% | EPSG:32643 |
+| coastline | `S2B_44PMV_20241026_0_L2A` | 2024-10-26 | 0.6158% | EPSG:32644 |
+| coastline | `S2C_44PMV_20260305_0_L2A` | 2026-03-05 | 0.8766% | EPSG:32644 |
+| agriculture_edge | `S2B_43PGQ_20250206_0_L2A` | 2025-02-06 | 0.0098% | EPSG:32643 |
+| agriculture_edge | `S2C_43PGQ_20251208_0_L2A` | 2025-12-08 | 0.0057% | EPSG:32643 |
+
+The former synthetic/thumbnail archive is quarantined under `data/quarantine/`; no thumbnail-derived record remains in the active SQLite or Qdrant index.
 
 | Component | Technology | Role | License |
 |---|---|---|---|
@@ -315,14 +330,19 @@ To demonstrate incremental ingestion without whole-archive recomputation:
 
 ## 9. Offline Operation Verification
 
-1. Run the offline staging script before disconnecting from the network:
+1. Stage full-band real data while network access is available:
+   ```bash
+   .venv/Scripts/python scripts/stage_real_dataset.py
+   ```
+   The workflow reads AOI windows directly from remote COG assets and falls back to resumable 8 MB HTTP ranges with retries. It stages 3 AOIs x 2 dates and writes STAC metadata sidecars.
+2. Run the offline staging script before disconnecting from the network:
    ```bash
    python scripts/stage_offline.py
    ```
-2. Disconnect Wi-Fi / Ethernet in the deployment environment.
-3. Run `python -m pytest -q` and execute one text and one image search against local Qdrant/SQLite stores.
+3. Disconnect Wi-Fi / Ethernet in the deployment environment.
+4. Run `python -m pytest -q` and execute one text and one image search against local Qdrant/SQLite stores.
 
-The synthetic demo archive was verified and quarantined under `data/quarantine/`. The current local index contains only two real Earth Search Sentinel-2 L2A items: `S2A_43PGQ_20240118_0_L2A` and `S2B_43PGQ_20250117_0_L2A`. Their STAC sidecars retain exact acquisition timestamps, non-rounded cloud cover, collection, provider, grid, and EPSG metadata. The local diagnostic reports 2 semantic points, 2 spectral points, 2 SQLite tiles, and non-zero embeddings.
+The synthetic and thumbnail demo archives were verified and quarantined under `data/quarantine/`. The current local index contains six full-band Earth Search Sentinel-2 L2A scene windows across three AOIs. Their STAC sidecars retain exact acquisition timestamps, cloud cover, collection, provider, grid, and EPSG metadata. The local diagnostic reports 40 semantic points, 40 spectral points, 40 SQLite tiles, 20 location keys, and non-zero embeddings.
 
 The repository does not include trained CLIP-RSICD, Clay, or Open-CD checkpoint artifacts, so offline fallback encoders and the SNUNet architecture fallback remain explicit until those weights are staged. The staging script reports missing artifacts instead of creating empty placeholder files.
 
@@ -351,7 +371,7 @@ The repository does not include trained CLIP-RSICD, Clay, or Open-CD checkpoint 
 - **Scalability**: Location-key optimization enables efficient scaling
 - **Maintainability**: Well-structured code with clear interfaces and type hints
 
-**Verification limits:** The repository does not ship trained CLIP-RSICD, Clay, or Open-CD checkpoint files. When those artifacts are absent, local fallback encoders and the SNUNet architecture fallback keep the pipeline runnable, but model-backed production accuracy is not claimed until the weights are staged. The current real-data sample contains two dates for one MGRS tile, so earliest-change comparisons are limited to that pair.
+**Verification limits:** The repository does not ship trained CLIP-RSICD, Clay, or Open-CD checkpoint files. When those artifacts are absent, local fallback encoders and the SNUNet architecture fallback keep the pipeline runnable, but model-backed production accuracy is not claimed until the weights are staged. The current real-data sample has two dates per AOI, with urban/agriculture sharing MGRS 43PGQ and coastline using MGRS 44PMV.
 
 ---
 
@@ -410,4 +430,4 @@ OPEN_CD_CHECKPOINT=data/weights/open_cd_snunet.pt
 
 ---
 
-**Status**: ✅ **Real-data replacement complete** - Synthetic inputs were quarantined, two Earth Search Sentinel-2 L2A scenes were staged and indexed, CRS/bounds and STAC provenance persist in SQLite, and both Qdrant collections contain 2 real-scene points. The diagnostic passes integrity checks; trained model weights remain a separate deployment prerequisite.
+**Status**: ✅ **Full-band real-data integration complete** - Synthetic and thumbnail inputs were quarantined, six Earth Search Sentinel-2 L2A full-band windows across three AOIs were staged and indexed, CRS/bounds and STAC provenance persist in SQLite, and both Qdrant collections contain 40 real-scene points. NDWI and s2cloudless operate on real reflectance bands; trained model weights remain a separate deployment prerequisite.
